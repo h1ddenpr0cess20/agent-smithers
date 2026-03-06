@@ -1,0 +1,9 @@
+/images
+__pycache__
+config_test.json
+/store
+.env
+.vscode/launch.json
+.venv
+/artifacts
+.pytest_cache

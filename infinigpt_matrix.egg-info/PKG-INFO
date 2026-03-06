@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: infinigpt-matrix
+Version: 0.1.0
+Summary: InfiniGPT Matrix bot (modular)
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: matrix-nio[e2e]
+Requires-Dist: httpx
+Requires-Dist: markdown
+Requires-Dist: rich
+Provides-Extra: test
+Requires-Dist: pytest; extra == "test"
+Requires-Dist: pytest-asyncio; extra == "test"
+Dynamic: license-file

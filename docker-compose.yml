@@ -1,0 +1,10 @@
+services:
+  infinigpt:
+    container_name: infinigpt-matrix
+    image: infinigpt-matrix:latest
+    user: "YOUR UID:YOUR GID"
+    volumes:
+      - ./.env:/data/.env:ro
+      - ./store:/data/store
+      - ./images:/data/images
+    command: ["infinigpt-matrix", "--env-file", "/data/.env", "--store-path", "/data/store", "--log-level", "INFO"]
