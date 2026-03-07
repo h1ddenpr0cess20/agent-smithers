@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from .config import AppConfig
 from .history import HistoryStore
 from .llm_client import LLMClient
+from .markdown_utils import render_markdown
 from .matrix_client import MatrixClientWrapper
 from . import responses, tooling
 
@@ -113,16 +114,10 @@ class AppContext:
     def render(self, body: str) -> Optional[str]:
         if not self.cfg.markdown:
             return None
-        try:
-            import markdown as _md
-
-            return _md.markdown(
-                body,
-                extensions=["extra", "fenced_code", "nl2br", "sane_lists", "tables", "codehilite"],
-            )
-        except Exception:
+        rendered = render_markdown(body)
+        if rendered is None:
             self.logger.exception("Markdown rendering failed")
-            return None
+        return rendered
 
     def clean_response_text(self, text: str, *, sender_display: str, sender_id: str) -> str:
         return responses.clean_response_text(

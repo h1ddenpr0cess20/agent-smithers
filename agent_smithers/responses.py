@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 import tempfile
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
@@ -10,7 +9,7 @@ if TYPE_CHECKING:
     from .context import AppContext
 
 
-INLINE_CITATION_RE = re.compile(r"\s*[【〖][^】〗\n]*?†source[】〗]")
+INLINE_CITATION_RE = None
 
 
 def clean_response_text(
@@ -60,34 +59,17 @@ def extract_text(response: Dict[str, Any]) -> str:
             continue
         for content in item.get("content", []) or []:
             if content.get("type") == "output_text":
-                text = strip_inline_citations(
-                    str(content.get("text") or ""),
-                    annotations=content.get("annotations"),
-                )
+                text = str(content.get("text") or "")
                 if text:
                     parts.append(text)
     if parts:
         return "\n".join(parts).strip()
-    return strip_inline_citations(str(response.get("output_text") or ""))
+    return str(response.get("output_text") or "")
 
 
 def strip_inline_citations(text: str, annotations: Any = None) -> str:
-    cleaned = str(text or "")
-    for annotation in annotations or []:
-        if not isinstance(annotation, dict):
-            continue
-        annotation_type = str(annotation.get("type") or "").lower()
-        if "citation" not in annotation_type:
-            continue
-        annotation_text = str(annotation.get("text") or "")
-        if annotation_text:
-            cleaned = cleaned.replace(annotation_text, "")
-    cleaned = INLINE_CITATION_RE.sub("", cleaned)
-    cleaned = re.sub(r"[ \t]+([,.;:!?])", r"\1", cleaned)
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-    cleaned = re.sub(r" *\n *", "\n", cleaned)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    return cleaned.strip()
+    del annotations
+    return str(text or "")
 
 
 def walk_image_results(value: Any) -> Iterable[Dict[str, Any]]:

@@ -152,14 +152,14 @@ def test_send_response_artifacts_handles_file_backed_image_payload():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
-def test_extract_text_strips_inline_citation_markers():
+def test_extract_text_keeps_inline_citation_markers():
     response = {
         "output_text": "Answer with sources【abc†source】",
     }
-    assert AppContext._extract_text(response) == "Answer with sources"
+    assert AppContext._extract_text(response) == "Answer with sources【abc†source】"
 
 
-def test_extract_text_strips_annotation_text_from_output_items():
+def test_extract_text_keeps_annotation_text_from_output_items():
     response = {
         "output": [
             {
@@ -182,7 +182,7 @@ def test_extract_text_strips_annotation_text_from_output_items():
     assert AppContext._extract_text(response) == "Answer text"
 
 
-def test_strip_inline_citations_removes_annotation_text():
+def test_strip_inline_citations_is_now_a_noop():
     text = "Answer text"
     annotations = [{"type": "url_citation", "text": ""}]
     assert AppContext._strip_inline_citations(text, annotations) == "Answer text"
@@ -259,6 +259,45 @@ def test_dual_provider_tool_sets_follow_selected_model():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
+def test_xai_non_grok4_models_do_not_get_hosted_tools_or_mcp():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"xai": ["grok-code-fast-1", "grok-4"]},
+            api_keys={"xai": "X"},
+            default_model="grok-code-fast-1",
+            personality="p",
+            prompt=["you are ", "."],
+            tools={
+                "web_search": True,
+                "x_search": True,
+                "code_interpreter": True,
+                "image_generation": True,
+            },
+            mcp_servers={
+                "deepwiki": {
+                    "server_url": "https://mcp.deepwiki.com/mcp",
+                }
+            },
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
+    )
+    ctx = AppContext(cfg)
+    try:
+        code_tools = ctx._tools_for_model("grok-code-fast-1")
+        grok4_tools = ctx._tools_for_model("grok-4")
+        assert [tool["name"] for tool in code_tools if tool["type"] == "function"] == ["generate_image"]
+        assert not any(tool["type"] == "web_search" for tool in code_tools)
+        assert not any(tool["type"] == "x_search" for tool in code_tools)
+        assert not any(tool["type"] == "code_interpreter" for tool in code_tools)
+        assert not any(tool["type"] == "mcp" for tool in code_tools)
+        assert any(tool["type"] == "web_search" for tool in grok4_tools)
+        assert any(tool["type"] == "x_search" for tool in grok4_tools)
+        assert any(tool["type"] == "code_interpreter" for tool in grok4_tools)
+        assert any(tool["type"] == "mcp" for tool in grok4_tools)
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
 def test_xai_search_country_policy_is_added_to_messages():
     cfg = AppConfig(
         llm=LLMConfig(
@@ -292,6 +331,43 @@ def test_xai_search_country_policy_is_added_to_messages():
         assert message0["role"] == "system"
         assert "prioritize results and sources from US" in message0["content"]
         assert "x_search" in message0["content"]
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_xai_non_grok4_models_do_not_apply_search_policy_without_search_tools():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"xai": ["grok-code-fast-1"]},
+            api_keys={"xai": "X"},
+            default_model="grok-code-fast-1",
+            personality="p",
+            prompt=["you are ", "."],
+            tools={
+                "web_search": True,
+                "x_search": True,
+                "image_generation": True,
+            },
+            web_search_country="US",
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
+    )
+    ctx = AppContext(cfg)
+    try:
+        capture = CaptureLLM()
+        ctx.llm = capture
+        out = asyncio.run(
+            ctx.generate_reply(
+                [{"role": "system", "content": "be concise"}, {"role": "user", "content": "hello"}],
+                model="grok-code-fast-1",
+                use_tools=True,
+            )
+        )
+        assert out == "ok"
+        assert capture.last_payload is not None
+        assert capture.last_payload["tools"] == [tool for tool in ctx._tools_for_model("grok-code-fast-1")]
+        message0 = capture.last_payload["messages"][0]
+        assert message0["content"] == "be concise"
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
@@ -603,31 +679,26 @@ def test_clean_response_text_no_tags_returns_stripped():
 
 # --- _strip_inline_citations ---
 
-def test_strip_inline_citations_removes_bracket_citations():
+def test_strip_inline_citations_keeps_bracket_citations():
     text = "Answer 【abc†source】 and more 〖def†source〗"
     result = AppContext._strip_inline_citations(text)
-    assert "†source" not in result
-    assert "Answer" in result
-    assert "and more" in result
+    assert result == text
 
 
-def test_strip_inline_citations_removes_annotation_text():
+def test_strip_inline_citations_keeps_annotation_text():
     text = "Answer [1] text [2] more"
     annotations = [
         {"type": "url_citation", "text": " [1]"},
         {"type": "url_citation", "text": " [2]"},
     ]
     result = AppContext._strip_inline_citations(text, annotations)
-    assert "[1]" not in result
-    assert "[2]" not in result
-    assert "Answer" in result
+    assert result == text
 
 
-def test_strip_inline_citations_collapses_whitespace():
+def test_strip_inline_citations_keeps_whitespace():
     text = "word  ,  extra   spaces"
     result = AppContext._strip_inline_citations(text)
-    assert "  " not in result
-    assert result == "word, extra spaces"
+    assert result == text
 
 
 def test_strip_inline_citations_ignores_non_citation_annotations():
@@ -664,7 +735,7 @@ def test_extract_text_from_output_items():
 def test_extract_text_falls_back_to_output_text():
     response = {"output_text": "Fallback text 【x†source】"}
     result = AppContext._extract_text(response)
-    assert result == "Fallback text"
+    assert result == "Fallback text 【x†source】"
 
 
 def test_extract_text_empty_response():

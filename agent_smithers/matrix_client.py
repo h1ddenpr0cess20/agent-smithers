@@ -5,8 +5,9 @@ import mimetypes
 import os
 from typing import Any, Awaitable, Callable, Optional
 
-import markdown
 from nio import AsyncClient, AsyncClientConfig, MatrixRoom, RoomMessageText, KeyVerificationEvent
+
+from .markdown_utils import render_markdown
 
 
 TextHandler = Callable[[Any, Any], Awaitable[None]]
@@ -86,10 +87,7 @@ class MatrixClientWrapper:
 
     async def send_markdown(self, room_id: str, message: str) -> None:
         """Render Markdown to HTML and send as a message."""
-        try:
-            html = markdown.markdown(message, extensions=["extra", "fenced_code", "nl2br", "sane_lists", "tables", "codehilite", "wikilinks", "footnotes"])  # type: ignore
-        except Exception:
-            html = None
+        html = render_markdown(message)
         await self.send_text(room_id, message, html=html)
 
     async def send_image(self, room_id: str, path: str, filename: str | None, log) -> None:

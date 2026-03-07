@@ -18,7 +18,8 @@ Provider notes:
 
 - OpenAI supports `web_search`, `code_interpreter`, and `image_generation`.
 - OpenAI `web_search` also supports `user_location`; this project maps `TOOLS_WEB_SEARCH_COUNTRY=US` to `{"user_location":{"type":"approximate","country":"US"}}`.
-- xAI supports `web_search`, `x_search`, and `code_interpreter` through its OpenAI-compatible Responses API.
+- xAI documents `web_search`, `x_search`, `code_interpreter`, and remote MCP for the Grok 4 family. This project only attaches those hosted tools to `grok-4*` models.
+- xAI function tools are broader than hosted xAI tools. This project still allows the local `generate_image` function tool on `grok-4*`, `grok-3*`, and `grok-code-fast-1`.
 - xAI's current provider docs do not document a country filter for `web_search`, and `x_search` exposes X-specific filters rather than country selection.
 - To keep behavior aligned, this project also applies `TOOLS_WEB_SEARCH_COUNTRY=US` as an xAI search-policy instruction whenever `web_search` or `x_search` is enabled.
 - `TOOLS_X_SEARCH` is used only when the active model is from xAI.

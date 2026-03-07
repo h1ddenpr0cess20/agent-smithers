@@ -9,6 +9,9 @@ if TYPE_CHECKING:
     from .context import AppContext
 
 
+XAI_HOSTED_TOOL_TYPES = {"web_search", "x_search", "code_interpreter", "mcp"}
+
+
 def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str, Any]]], set[str]]:
     hosted_tools_by_provider = {
         provider: build_tools(ctx, provider)
@@ -43,7 +46,30 @@ def provider_for_context_model(ctx: "AppContext", model: str) -> str:
 
 
 def tools_for_model(ctx: "AppContext", model: str) -> List[Dict[str, Any]]:
-    return list(ctx.hosted_tools_by_provider.get(provider_for_context_model(ctx, model), []))
+    provider = provider_for_context_model(ctx, model)
+    tools = list(ctx.hosted_tools_by_provider.get(provider, []))
+    return [tool for tool in tools if tool_supported_for_model(provider, model, tool)]
+
+
+def tool_supported_for_model(provider: str, model: str, tool: Dict[str, Any]) -> bool:
+    if provider != "xai":
+        return True
+    tool_type = str(tool.get("type") or "")
+    if tool_type in XAI_HOSTED_TOOL_TYPES:
+        return xai_model_supports_hosted_tools(model)
+    if tool_type == "function":
+        return xai_model_supports_function_tools(model)
+    return True
+
+
+def xai_model_supports_hosted_tools(model: str) -> bool:
+    lowered = str(model or "").strip().lower()
+    return lowered.startswith("grok-4")
+
+
+def xai_model_supports_function_tools(model: str) -> bool:
+    lowered = str(model or "").strip().lower()
+    return lowered.startswith(("grok-4", "grok-3", "grok-code-fast-1"))
 
 
 async def refresh_models(ctx: "AppContext") -> None:
