@@ -168,6 +168,16 @@ class AppContext:
             self.logger.warning("Ignoring invalid tool config for %s", tool_name)
             return None
         if (
+            tool_name == "web_search"
+            and provider == "openai"
+            and self.cfg.llm.web_search_country
+            and "user_location" not in tool
+        ):
+            tool["user_location"] = {
+                "type": "approximate",
+                "country": self.cfg.llm.web_search_country,
+            }
+        if (
             tool_name == "code_interpreter"
             and provider == "openai"
             and "container" not in tool
@@ -215,6 +225,33 @@ class AppContext:
         if spec.get("auto_approve") is True:
             tool["_auto_approve"] = True
         return tool
+
+    def _apply_search_country_policy(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        provider: str,
+        tools: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        country = self.cfg.llm.web_search_country
+        if not country or provider != "xai":
+            return list(messages)
+        uses_search = any(
+            isinstance(tool, dict) and str(tool.get("type") or "") in {"web_search", "x_search"}
+            for tool in tools
+        )
+        if not uses_search:
+            return list(messages)
+        policy = (
+            "When using web_search or x_search, prioritize results and sources from "
+            f"{country}. If the provider tool cannot enforce country filtering directly, "
+            "state that limitation and keep the answer focused on US sources where possible."
+        )
+        if messages and str(messages[0].get("role") or "") == "system":
+            merged = dict(messages[0])
+            merged["content"] = f"{messages[0].get('content', '').rstrip()}\n\n{policy}".strip()
+            return [merged, *messages[1:]]
+        return [{"role": "system", "content": policy}, *messages]
 
     async def to_thread(self, fn, *args, **kwargs) -> Any:
         loop = asyncio.get_running_loop()
@@ -489,11 +526,16 @@ class AppContext:
         use_model = model or self.model
         provider = self._provider_for_model(use_model)
         active_tools = self._tools_for_model(use_model)
+        prepared_messages = self._apply_search_country_policy(
+            messages,
+            provider=provider,
+            tools=active_tools,
+        )
         self.hosted_tools = active_tools
         tools_enabled = self.tools_enabled if use_tools is None else bool(use_tools and active_tools)
         response = await self.llm.create_response(
             model=use_model,
-            messages=messages,
+            messages=prepared_messages,
             tools=active_tools if tools_enabled else None,
             tool_choice="auto" if tools_enabled and active_tools else None,
             options=self.options,

@@ -7,6 +7,7 @@ Agent Smithers uses provider-hosted tools through the Responses API. It does not
 These are controlled through `.env`:
 
 - `TOOLS_WEB_SEARCH=true`
+- `TOOLS_WEB_SEARCH_COUNTRY=US`
 - `TOOLS_X_SEARCH=true`
 - `TOOLS_CODE_INTERPRETER=true`
 - `TOOLS_IMAGE_GENERATION=true`
@@ -16,7 +17,10 @@ When enabled, the bot sends those tools in the Responses API request and the sel
 Provider notes:
 
 - OpenAI supports `web_search`, `code_interpreter`, and `image_generation`.
+- OpenAI `web_search` also supports `user_location`; this project maps `TOOLS_WEB_SEARCH_COUNTRY=US` to `{"user_location":{"type":"approximate","country":"US"}}`.
 - xAI supports `web_search`, `x_search`, and `code_interpreter` through its OpenAI-compatible Responses API.
+- xAI's current provider docs do not document a country filter for `web_search`, and `x_search` exposes X-specific filters rather than country selection.
+- To keep behavior aligned, this project also applies `TOOLS_WEB_SEARCH_COUNTRY=US` as an xAI search-policy instruction whenever `web_search` or `x_search` is enabled.
 - `TOOLS_X_SEARCH` is used only when the active model is from xAI.
 - `TOOLS_IMAGE_GENERATION` is used only when the active model is from OpenAI.
 

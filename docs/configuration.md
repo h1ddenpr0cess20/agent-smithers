@@ -36,6 +36,8 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
   JSON object merged into Responses API calls.
 - `TOOLS_WEB_SEARCH`
   `true` or `false`.
+- `TOOLS_WEB_SEARCH_COUNTRY`
+  Optional ISO 3166-1 alpha-2 country code used for OpenAI `web_search` location biasing, for example `US`.
 - `TOOLS_X_SEARCH`
   `true` or `false`. Used by xAI models.
 - `TOOLS_CODE_INTERPRETER`
@@ -73,6 +75,7 @@ BOT_PROMPT_PREFIX="assume the personality of "
 BOT_PROMPT_SUFFIX=". roleplay and never break character."
 RESPONSES_OPTIONS={}
 TOOLS_WEB_SEARCH=true
+TOOLS_WEB_SEARCH_COUNTRY=US
 TOOLS_X_SEARCH=false
 TOOLS_CODE_INTERPRETER=true
 TOOLS_IMAGE_GENERATION=true
@@ -93,4 +96,6 @@ MATRIX_E2E=true
 - `RESPONSES_OPTIONS` must be valid JSON.
 - Set the keys and model lists for the providers you want available at the same time.
 - `OPENAI_MODELS` or `XAI_MODELS` is still useful as fallback even when `SERVER_MODELS=true`.
+- `TOOLS_WEB_SEARCH_COUNTRY` is currently applied only to OpenAI `web_search`, because xAI's provider docs do not document a country filter for `web_search` or `x_search`.
+- `TOOLS_WEB_SEARCH_COUNTRY` is sent as a structured OpenAI `web_search.user_location.country` value. For xAI search tools, which do not currently document a country parameter, the bot adds a search-policy instruction so `x_search` and `web_search` still bias toward US sources.
 - Keep `.env` out of version control.

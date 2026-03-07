@@ -48,6 +48,22 @@ class FakeMatrix:
         self.sent_images.append((room_id, path, filename))
 
 
+class CaptureLLM:
+    def __init__(self):
+        self.last_payload = None
+
+    async def create_response(self, **payload):
+        self.last_payload = payload
+        return {
+            "output": [
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": "ok"}],
+                }
+            ]
+        }
+
+
 def test_mcp_auto_approval_loop_completes():
     cfg = AppConfig(
         llm=LLMConfig(
@@ -222,6 +238,7 @@ def test_dual_provider_tool_sets_follow_selected_model():
                 "code_interpreter": True,
                 "image_generation": True,
             },
+            web_search_country="US",
         ),
         matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
     )
@@ -233,6 +250,47 @@ def test_dual_provider_tool_sets_follow_selected_model():
         assert {"type": "x_search"} not in openai_tools
         assert {"type": "x_search"} in xai_tools
         assert {"type": "image_generation"} not in xai_tools
+        openai_web_search = next(tool for tool in openai_tools if tool["type"] == "web_search")
+        xai_web_search = next(tool for tool in xai_tools if tool["type"] == "web_search")
+        assert openai_web_search["user_location"] == {"type": "approximate", "country": "US"}
+        assert xai_web_search == {"type": "web_search"}
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_xai_search_country_policy_is_added_to_messages():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"xai": ["grok-4"]},
+            api_keys={"xai": "X"},
+            default_model="grok-4",
+            personality="p",
+            prompt=["you are ", "."],
+            tools={
+                "web_search": True,
+                "x_search": True,
+            },
+            web_search_country="US",
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
+    )
+    ctx = AppContext(cfg)
+    try:
+        capture = CaptureLLM()
+        ctx.llm = capture
+        out = asyncio.run(
+            ctx.generate_reply(
+                [{"role": "system", "content": "be concise"}, {"role": "user", "content": "hello"}],
+                model="grok-4",
+                use_tools=True,
+            )
+        )
+        assert out == "ok"
+        assert capture.last_payload is not None
+        message0 = capture.last_payload["messages"][0]
+        assert message0["role"] == "system"
+        assert "prioritize results and sources from US" in message0["content"]
+        assert "x_search" in message0["content"]
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 

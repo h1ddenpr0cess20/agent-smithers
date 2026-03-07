@@ -7,4 +7,4 @@ config_test.json
 .venv
 /artifacts
 .pytest_cache
-*.egg-info
+/*.egg-info

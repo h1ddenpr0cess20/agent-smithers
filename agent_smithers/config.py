@@ -83,6 +83,7 @@ class LLMConfig:
     base_urls: Dict[str, str] = field(default_factory=dict)
     options: Dict[str, Any] = field(default_factory=dict)
     tools: Dict[str, Any] = field(default_factory=dict)
+    web_search_country: str = ""
     server_models: bool = True
     history_size: int = 24
     mcp_servers: Dict[str, Any] = field(default_factory=dict)
@@ -207,6 +208,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         prompt=prompt,
         options=_parse_json(os.getenv("RESPONSES_OPTIONS"), {}),
         tools=tools,
+        web_search_country=os.getenv("TOOLS_WEB_SEARCH_COUNTRY", "").strip().upper(),
         server_models=_parse_bool(os.getenv("SERVER_MODELS"), True),
         history_size=int(os.getenv("HISTORY_SIZE", "24")),
         mcp_servers=_parse_json(os.getenv("MCP_SERVERS"), {}),

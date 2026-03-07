@@ -62,6 +62,26 @@ def test_load_config_and_validate_xai(tmp_path: Path):
     assert cfg.llm.tools["x_search"] is True
 
 
+def test_load_config_reads_web_search_country(tmp_path: Path):
+    p = tmp_path / ".env"
+    p.write_text(
+        "\n".join(
+            [
+                "OPENAI_API_KEY=X",
+                "OPENAI_MODELS=gpt-5-mini",
+                "DEFAULT_MODEL=gpt-5-mini",
+                "TOOLS_WEB_SEARCH_COUNTRY=us",
+                "MATRIX_SERVER=https://example.org",
+                "MATRIX_USERNAME=@bot:example.org",
+                "MATRIX_PASSWORD=pw",
+                "MATRIX_CHANNELS=!r:example.org",
+            ]
+        )
+    )
+    cfg = load_config(str(p))
+    assert cfg.llm.web_search_country == "US"
+
+
 def test_load_config_supports_both_providers(tmp_path: Path):
     p = tmp_path / ".env"
     p.write_text(
