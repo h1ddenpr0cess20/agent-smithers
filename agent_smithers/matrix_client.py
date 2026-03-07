@@ -90,18 +90,29 @@ class MatrixClientWrapper:
         html = render_markdown(message)
         await self.send_text(room_id, message, html=html)
 
-    async def send_image(self, room_id: str, path: str, filename: str | None, log) -> None:
-        """Upload a local image file and send it to a room.
+    async def _send_media(
+        self,
+        room_id: str,
+        path: str,
+        filename: str | None,
+        log,
+        *,
+        msgtype: str,
+        missing_label: str,
+    ) -> None:
+        """Upload a local media file and send it to a room.
 
         Args:
             room_id: Target room ID.
-            path: Local filesystem path to an image file.
+            path: Local filesystem path to the media file.
             filename: Optional display filename; defaults to basename of path.
             log: Logging callable for status/error output.
+            msgtype: Matrix message type, for example `m.image` or `m.video`.
+            missing_label: Human-readable media label for user-facing errors.
         """
         if not path or not os.path.exists(path):
-            log(f"Error sending image: Invalid path '{path}'")
-            await self.send_markdown(room_id, f"Error: Could not find image file at {path}")
+            log(f"Error sending {missing_label}: Invalid path '{path}'")
+            await self.send_markdown(room_id, f"Error: Could not find {missing_label} file at {path}")
             return
         if not filename:
             filename = os.path.basename(path)
@@ -111,15 +122,23 @@ class MatrixClientWrapper:
             with open(path, "rb") as fp:
                 upload_response, _ = await self.client.upload(fp, content_type=mime_type, filename=filename, filesize=file_stat.st_size)
             if not upload_response or not hasattr(upload_response, "content_uri"):
-                log(f"Failed to upload image: Invalid response {upload_response}")
-                await self.send_markdown(room_id, f"Failed to upload image '{filename}'.")
+                log(f"Failed to upload {missing_label}: Invalid response {upload_response}")
+                await self.send_markdown(room_id, f"Failed to upload {missing_label} '{filename}'.")
                 return
             content_uri = upload_response.content_uri
-            content = {"body": filename, "info": {"mimetype": mime_type, "size": file_stat.st_size}, "msgtype": "m.image", "url": content_uri}
+            content = {"body": filename, "info": {"mimetype": mime_type, "size": file_stat.st_size}, "msgtype": msgtype, "url": content_uri}
             await self.client.room_send(room_id=room_id, message_type="m.room.message", content=content, ignore_unverified_devices=True)
         except Exception as e:
-            log(f"Error sending image to {room_id}: {e}")
-            await self.send_markdown(room_id, f"Sorry, an error occurred while trying to send the image: {e}")
+            log(f"Error sending {missing_label} to {room_id}: {e}")
+            await self.send_markdown(room_id, f"Sorry, an error occurred while trying to send the {missing_label}: {e}")
+
+    async def send_image(self, room_id: str, path: str, filename: str | None, log) -> None:
+        """Upload a local image file and send it to a room."""
+        await self._send_media(room_id, path, filename, log, msgtype="m.image", missing_label="image")
+
+    async def send_video(self, room_id: str, path: str, filename: str | None, log) -> None:
+        """Upload a local video file and send it to a room."""
+        await self._send_media(room_id, path, filename, log, msgtype="m.video", missing_label="video")
 
     async def display_name(self, user_id: str) -> str:
         """Fetch a user's display name, falling back to user ID on error."""

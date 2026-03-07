@@ -52,7 +52,7 @@ async def handle_x(ctx: Any, room_id: str, sender_id: str, sender_display: str, 
     messages = ctx.history.get(room_id, target_user)
     model = ctx.user_models.get(room_id, {}).get(target_user, ctx.model)
     try:
-        response_text = await ctx.generate_reply(messages, model=model, room_id=room_id)
+        response_text = await ctx.generate_reply(messages, model=model, room_id=room_id, thread_user=target_user)
     except Exception as e:
         try:
             await ctx.matrix.send_text(room_id, "Something went wrong", html=ctx.render("Something went wrong"))

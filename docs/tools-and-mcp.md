@@ -11,6 +11,7 @@ These are controlled through `.env`:
 - `TOOLS_X_SEARCH=true`
 - `TOOLS_CODE_INTERPRETER=true`
 - `TOOLS_IMAGE_GENERATION=true`
+- `TOOLS_VIDEO_GENERATION=true`
 
 When enabled, the bot sends those tools in the Responses API request and the selected provider runs them on the hosted side.
 
@@ -19,11 +20,12 @@ Provider notes:
 - OpenAI supports `web_search`, `code_interpreter`, and `image_generation`.
 - OpenAI `web_search` also supports `user_location`; this project maps `TOOLS_WEB_SEARCH_COUNTRY=US` to `{"user_location":{"type":"approximate","country":"US"}}`.
 - xAI documents `web_search`, `x_search`, `code_interpreter`, and remote MCP for the Grok 4 family. This project only attaches those hosted tools to `grok-4*` models.
-- xAI function tools are broader than hosted xAI tools. This project still allows the local `generate_image` function tool on `grok-4*`, `grok-3*`, and `grok-code-fast-1`.
+- xAI function tools are broader than hosted xAI tools. This project exposes local `generate_image`, `edit_image`, and `generate_video` tools backed by Grok Imagine on `grok-4*`, `grok-3*`, and `grok-code-fast-1`.
 - xAI's current provider docs do not document a country filter for `web_search`, and `x_search` exposes X-specific filters rather than country selection.
 - To keep behavior aligned, this project also applies `TOOLS_WEB_SEARCH_COUNTRY=US` as an xAI search-policy instruction whenever `web_search` or `x_search` is enabled.
 - `TOOLS_X_SEARCH` is used only when the active model is from xAI.
-- `TOOLS_IMAGE_GENERATION` is used only when the active model is from OpenAI.
+- `TOOLS_IMAGE_GENERATION` enables OpenAI hosted image generation and xAI Grok Imagine image generation/editing.
+- `TOOLS_VIDEO_GENERATION` enables xAI Grok Imagine video generation/editing.
 
 ## MCP
 
@@ -70,7 +72,7 @@ MCP_SERVERS={"deepwiki":{"server_url":"https://mcp.deepwiki.com/mcp","auto_appro
 
 ## Image Output
 
-If image generation returns image data, the bot writes temporary artifacts locally and uploads them to Matrix.
+If image or video generation returns media data, the bot writes temporary artifacts locally and uploads them to Matrix.
 
 ## Tool Toggle
 

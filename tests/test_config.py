@@ -74,6 +74,27 @@ def test_load_config_and_validate_xai(tmp_path: Path):
     assert cfg.llm.models["xai"] == ["grok-4", "grok-3-mini"]
     assert cfg.llm.api_keys["xai"] == "X"
     assert cfg.llm.tools["x_search"] is True
+    assert cfg.llm.tools["video_generation"] is True
+
+
+def test_load_config_reads_video_generation_toggle(tmp_path: Path):
+    p = tmp_path / ".env"
+    p.write_text(
+        "\n".join(
+            [
+                "XAI_API_KEY=X",
+                "XAI_MODELS=grok-4",
+                "DEFAULT_MODEL=grok-4",
+                "TOOLS_VIDEO_GENERATION=false",
+                "MATRIX_SERVER=https://example.org",
+                "MATRIX_USERNAME=@bot:example.org",
+                "MATRIX_PASSWORD=pw",
+                "MATRIX_CHANNELS=!r:example.org",
+            ]
+        )
+    )
+    cfg = load_config(str(p))
+    assert cfg.llm.tools["video_generation"] is False
 
 
 def test_load_config_reads_web_search_country(tmp_path: Path):

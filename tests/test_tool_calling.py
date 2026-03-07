@@ -44,9 +44,13 @@ class FakeLLM:
 class FakeMatrix:
     def __init__(self):
         self.sent_images = []
+        self.sent_videos = []
 
     async def send_image(self, room_id, path, filename=None, log=None):
         self.sent_images.append((room_id, path, filename))
+
+    async def send_video(self, room_id, path, filename=None, log=None):
+        self.sent_videos.append((room_id, path, filename))
 
 
 class CaptureLLM:
@@ -217,6 +221,8 @@ def test_xai_hosted_tools_include_x_search_and_map_mcp_fields():
         assert {"type": "web_search"} in ctx.hosted_tools
         assert {"type": "x_search"} in ctx.hosted_tools
         assert {"type": "code_interpreter"} in ctx.hosted_tools
+        function_names = {tool["name"] for tool in ctx.hosted_tools if tool["type"] == "function"}
+        assert function_names == {"generate_image", "edit_image", "generate_video"}
         mcp_tool = next(tool for tool in ctx.hosted_tools if tool["type"] == "mcp")
         assert mcp_tool["allowed_tool_names"] == ["ask_question"]
         assert mcp_tool["extra_headers"] == {"X-Test": "1"}
@@ -285,7 +291,11 @@ def test_xai_non_grok4_models_do_not_get_hosted_tools_or_mcp():
     try:
         code_tools = ctx._tools_for_model("grok-code-fast-1")
         grok4_tools = ctx._tools_for_model("grok-4")
-        assert [tool["name"] for tool in code_tools if tool["type"] == "function"] == ["generate_image"]
+        assert {tool["name"] for tool in code_tools if tool["type"] == "function"} == {
+            "generate_image",
+            "edit_image",
+            "generate_video",
+        }
         assert not any(tool["type"] == "web_search" for tool in code_tools)
         assert not any(tool["type"] == "x_search" for tool in code_tools)
         assert not any(tool["type"] == "code_interpreter" for tool in code_tools)
@@ -813,6 +823,29 @@ def test_build_hosted_tool_code_interpreter_no_container_for_xai():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
+def test_xai_video_generation_tool_can_be_disabled():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"xai": ["grok-4"]},
+            api_keys={"xai": "X"},
+            default_model="grok-4",
+            personality="p",
+            prompt=["you are ", "."],
+            tools={
+                "image_generation": True,
+                "video_generation": False,
+            },
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
+    )
+    ctx = AppContext(cfg)
+    try:
+        function_names = {tool["name"] for tool in ctx._tools_for_model("grok-4") if tool["type"] == "function"}
+        assert function_names == {"generate_image", "edit_image"}
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
 # --- _build_mcp_tool edge cases ---
 
 def test_build_mcp_tool_invalid_spec_returns_none():
@@ -913,6 +946,157 @@ def test_send_response_artifacts_returns_false_when_no_room_id():
     try:
         sent = asyncio.run(ctx._send_response_artifacts({"output": []}, None, provider="openai"))
         assert sent is False
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_handle_generate_image_calls_supports_edit_image():
+    ctx = _ctx()
+    try:
+        class FakeMediaLLM:
+            async def edit_image(self, **payload):
+                assert payload["prompt"] == "make it cinematic"
+                assert payload["image_urls"] == ["https://example.com/source.png"]
+                return {"data": [{"b64_json": base64.b64encode(b"edited").decode()}]}
+
+        ctx.llm = FakeMediaLLM()
+        response = {
+            "output": [
+                {
+                    "type": "function_call",
+                    "name": "edit_image",
+                    "call_id": "call_1",
+                    "arguments": '{"prompt":"make it cinematic","image_url":"https://example.com/source.png"}',
+                }
+            ]
+        }
+        output_items = asyncio.run(ctx._handle_generate_image_calls(response, model="grok-4", room_id="!r"))
+        assert output_items == [
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "Image edited and sent.",
+            }
+        ]
+        assert len(ctx.matrix.sent_images) == 1
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_handle_generate_image_calls_uses_latest_generated_image_when_edit_input_missing():
+    ctx = _ctx()
+    try:
+        ctx._remember_generated_media(
+            "!r",
+            "@u",
+            kind="image",
+            reference="data:image/png;base64,c291cmNl",
+            mime_type="image/png",
+        )
+
+        class FakeMediaLLM:
+            async def edit_image(self, **payload):
+                assert payload["image_urls"] == ["data:image/png;base64,c291cmNl"]
+                return {"data": [{"b64_json": base64.b64encode(b"edited").decode()}]}
+
+        ctx.llm = FakeMediaLLM()
+        response = {
+            "output": [
+                {
+                    "type": "function_call",
+                    "name": "edit_image",
+                    "call_id": "call_implicit",
+                    "arguments": '{"prompt":"make it warmer"}',
+                }
+            ]
+        }
+        output_items = asyncio.run(
+            ctx._handle_generate_image_calls(response, model="grok-4", room_id="!r", thread_user="@u")
+        )
+        assert output_items == [
+            {
+                "type": "function_call_output",
+                "call_id": "call_implicit",
+                "output": "Image edited and sent.",
+            }
+        ]
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_handle_generate_image_calls_supports_generate_video():
+    ctx = _ctx()
+    try:
+        class FakeMediaLLM:
+            async def generate_video(self, **payload):
+                assert payload["prompt"] == "pan slowly across the room"
+                assert payload["image_url"] == "https://example.com/source.png"
+                return {"url": "https://cdn.example.com/output.mp4"}
+
+            async def download_url(self, url, provider=None):
+                assert url == "https://cdn.example.com/output.mp4"
+                assert provider == "xai"
+                return b"mp4-bytes"
+
+        ctx.llm = FakeMediaLLM()
+        response = {
+            "output": [
+                {
+                    "type": "function_call",
+                    "name": "generate_video",
+                    "call_id": "call_2",
+                    "arguments": '{"prompt":"pan slowly across the room","image_url":"https://example.com/source.png","duration":5}',
+                }
+            ]
+        }
+        output_items = asyncio.run(ctx._handle_generate_image_calls(response, model="grok-4", room_id="!r"))
+        assert output_items == [
+            {
+                "type": "function_call_output",
+                "call_id": "call_2",
+                "output": "Video generated and sent.",
+            }
+        ]
+        assert len(ctx.matrix.sent_videos) == 1
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_generate_reply_adds_media_context_note_for_thread():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"xai": ["grok-4"]},
+            api_keys={"xai": "X"},
+            default_model="grok-4",
+            personality="p",
+            prompt=["you are ", "."],
+            tools={"image_generation": True},
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
+    )
+    ctx = AppContext(cfg)
+    try:
+        ctx._remember_generated_media(
+            "!r",
+            "@u",
+            kind="image",
+            reference="data:image/png;base64,c291cmNl",
+            mime_type="image/png",
+        )
+        capture = CaptureLLM()
+        ctx.llm = capture
+        out = asyncio.run(
+            ctx.generate_reply(
+                [{"role": "system", "content": "be concise"}, {"role": "user", "content": "edit that image"}],
+                model="grok-4",
+                room_id="!r",
+                thread_user="@u",
+                use_tools=True,
+            )
+        )
+        assert out == "ok"
+        assert "Recent generated media is available in this thread." in capture.last_payload["messages"][0]["content"]
+        assert "runtime will supply it" in capture.last_payload["messages"][0]["content"]
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 

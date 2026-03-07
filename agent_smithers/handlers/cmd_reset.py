@@ -16,6 +16,8 @@ async def handle_reset(ctx: Any, room_id: str, sender_id: str, sender_display: s
     stock = args.strip().lower() == "stock"
     # Match reference behavior: reset history; if not stock, seed default persona
     ctx.history.reset(room_id, sender_id, stock=stock)
+    if hasattr(ctx, "_clear_generated_media"):
+        ctx._clear_generated_media(room_id, sender_id)
     if stock:
         body = f"Stock settings applied for {sender_display}"
         try:
@@ -39,6 +41,8 @@ async def handle_clear(ctx: Any, room_id: str, sender_id: str, sender_display: s
     model and personality.
     """
     ctx.history.clear_all()
+    if hasattr(ctx, "_clear_generated_media"):
+        ctx._clear_generated_media()
     ctx.model = ctx.default_model
     ctx.personality = ctx.default_personality
     body = "Bot has been reset for everyone"

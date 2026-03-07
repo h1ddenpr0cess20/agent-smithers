@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 
 import agent_smithers.matrix_client as mc
@@ -31,6 +32,15 @@ class FakeAsyncClient:
     async def room_send(self, room_id=None, message_type=None, content=None, ignore_unverified_devices=None):
         self.last_send = SimpleNamespace(room_id=room_id, message_type=message_type, content=content)
 
+    async def upload(self, fp, content_type=None, filename=None, filesize=None):
+        self.last_upload = SimpleNamespace(
+            content=fp.read(),
+            content_type=content_type,
+            filename=filename,
+            filesize=filesize,
+        )
+        return SimpleNamespace(content_uri="mxc://example/media"), None
+
     async def get_displayname(self, user_id):
         return SimpleNamespace(displayname=f"DN:{user_id}")
 
@@ -53,8 +63,7 @@ class FakeAsyncClientConfig:
         self.store_sync_tokens = store_sync_tokens
 
 
-@pytest.mark.asyncio
-async def test_matrix_client_wrapper_basic(monkeypatch):
+def test_matrix_client_wrapper_basic(monkeypatch):
     monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
 
@@ -67,19 +76,19 @@ async def test_matrix_client_wrapper_basic(monkeypatch):
         encryption_enabled=True,
     )
 
-    await w.login()
-    await w.ensure_keys()
+    asyncio.run(w.login())
+    asyncio.run(w.ensure_keys())
     assert getattr(w.client, "keys_uploaded", False) is True
-    await w.load_store()
+    asyncio.run(w.load_store())
     assert getattr(w.client, "store_loaded", False) is True
-    await w.join("!r")
-    await w.send_text("!r", "hello")
+    asyncio.run(w.join("!r"))
+    asyncio.run(w.send_text("!r", "hello"))
     assert w.client.last_send.content["body"] == "hello"
-    await w.send_text("!r", "hello", html="<p>hello</p>")
+    asyncio.run(w.send_text("!r", "hello", html="<p>hello</p>"))
     content = w.client.last_send.content
     assert content["formatted_body"] == "<p>hello</p>"
     assert content["format"] == "org.matrix.custom.html"
-    dn = await w.display_name("@user:example.org")
+    dn = asyncio.run(w.display_name("@user:example.org"))
     assert dn.startswith("DN:@user")
     seen = {}
 
@@ -88,8 +97,27 @@ async def test_matrix_client_wrapper_basic(monkeypatch):
 
     w.add_text_handler(handler)
     cb, _ = w.client._callbacks[-1]
-    await cb(SimpleNamespace(room_id="!r"), SimpleNamespace(body="hi", sender="@u", server_timestamp=0))
+    asyncio.run(cb(SimpleNamespace(room_id="!r"), SimpleNamespace(body="hi", sender="@u", server_timestamp=0)))
     assert seen.get("ok") is True
     w.add_to_device_callback(lambda *a, **k: None, None)
     assert w.client._to_device_callbacks
 
+
+def test_matrix_client_wrapper_send_video(monkeypatch, tmp_path):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+        store_path=str(tmp_path / "store"),
+    )
+    video_path = tmp_path / "clip.mp4"
+    video_path.write_bytes(b"video-bytes")
+
+    asyncio.run(w.send_video("!r", str(video_path), None, log=lambda *_args, **_kwargs: None))
+
+    assert w.client.last_upload.filename == "clip.mp4"
+    assert w.client.last_send.content["msgtype"] == "m.video"
+    assert w.client.last_send.content["body"] == "clip.mp4"

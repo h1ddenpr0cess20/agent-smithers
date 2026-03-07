@@ -62,6 +62,7 @@ class AppContext:
         self.bot_id = "Agent Smithers"
         self.user_models: Dict[str, Dict[str, str]] = {}
         self.verbose = False
+        self.generated_media: Dict[str, Dict[str, Dict[str, Dict[str, str]]]] = {}
 
         self.llm = LLMClient(cfg)
         self.hosted_tools_by_provider, self._mcp_auto_approve = tooling.initialize_hosted_tools(self)
@@ -150,8 +151,15 @@ class AppContext:
         room_id: Optional[str],
         *,
         provider: str,
+        thread_user: Optional[str] = None,
     ) -> bool:
-        return await responses.send_response_artifacts(self, response, room_id, provider=provider)
+        return await responses.send_response_artifacts(
+            self,
+            response,
+            room_id,
+            provider=provider,
+            thread_user=thread_user,
+        )
 
     def _approval_items(self, response: Dict[str, Any]) -> List[Dict[str, Any]]:
         return responses.approval_items(response)
@@ -179,13 +187,82 @@ class AppContext:
         *,
         model: str,
         room_id: Optional[str],
+        thread_user: Optional[str] = None,
     ) -> Optional[List[Dict[str, Any]]]:
         return await responses.handle_generate_image_calls(
             self,
             response,
             model=model,
             room_id=room_id,
+            thread_user=thread_user,
         )
+
+    def _remember_generated_media(
+        self,
+        room_id: Optional[str],
+        user_id: Optional[str],
+        *,
+        kind: str,
+        reference: str,
+        mime_type: str,
+    ) -> None:
+        if not room_id or not user_id or not reference:
+            return
+        room_media = self.generated_media.setdefault(room_id, {})
+        thread_media = room_media.setdefault(user_id, {})
+        thread_media[kind] = {
+            "reference": reference,
+            "mime_type": mime_type,
+        }
+
+    def _latest_generated_media(
+        self,
+        room_id: Optional[str],
+        user_id: Optional[str],
+        *,
+        kind: str,
+    ) -> Optional[str]:
+        if not room_id or not user_id:
+            return None
+        return (
+            self.generated_media
+            .get(room_id, {})
+            .get(user_id, {})
+            .get(kind, {})
+            .get("reference")
+        )
+
+    def _thread_media_prompt_note(self, room_id: Optional[str], user_id: Optional[str]) -> Optional[str]:
+        image_ref = self._latest_generated_media(room_id, user_id, kind="image")
+        video_ref = self._latest_generated_media(room_id, user_id, kind="video")
+        notes: List[str] = []
+        if image_ref:
+            notes.append(
+                "If the user asks to edit, vary, or animate the most recently generated image in this thread, "
+                "call the relevant tool without requiring an explicit image URL; the runtime will supply it."
+            )
+        if video_ref:
+            notes.append(
+                "If the user asks to edit the most recently generated video in this thread, "
+                "call the video tool without requiring an explicit video URL; the runtime will supply it."
+            )
+        if not notes:
+            return None
+        return "Recent generated media is available in this thread. " + " ".join(notes)
+
+    def _clear_generated_media(self, room_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
+        if room_id is None:
+            self.generated_media.clear()
+            return
+        if room_id not in self.generated_media:
+            return
+        if user_id is None:
+            self.generated_media.pop(room_id, None)
+            return
+        room_media = self.generated_media.get(room_id, {})
+        room_media.pop(user_id, None)
+        if not room_media:
+            self.generated_media.pop(room_id, None)
 
     async def generate_reply(
         self,
@@ -194,6 +271,7 @@ class AppContext:
         model: Optional[str] = None,
         room_id: Optional[str] = None,
         use_tools: Optional[bool] = None,
+        thread_user: Optional[str] = None,
     ) -> str:
         return await responses.generate_reply(
             self,
@@ -201,6 +279,7 @@ class AppContext:
             model=model,
             room_id=room_id,
             use_tools=use_tools,
+            thread_user=thread_user,
         )
 
     async def respond_with_tools(
@@ -210,6 +289,7 @@ class AppContext:
         model: Optional[str] = None,
         room_id: Optional[str] = None,
         tool_choice: str = "auto",
+        thread_user: Optional[str] = None,
     ) -> str:
         return await responses.respond_with_tools(
             self,
@@ -217,4 +297,5 @@ class AppContext:
             model=model,
             room_id=room_id,
             tool_choice=tool_choice,
+            thread_user=thread_user,
         )

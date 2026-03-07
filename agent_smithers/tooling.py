@@ -10,6 +10,13 @@ if TYPE_CHECKING:
 
 
 XAI_HOSTED_TOOL_TYPES = {"web_search", "x_search", "code_interpreter", "mcp"}
+XAI_IMAGE_ASPECT_RATIOS = [
+    "1:1", "16:9", "9:16", "4:3", "3:4",
+    "3:2", "2:3", "2:1", "1:2",
+    "19.5:9", "9:19.5", "20:9", "9:20", "auto",
+]
+XAI_VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"]
+XAI_VIDEO_RESOLUTIONS = ["480p", "720p"]
 
 
 def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str, Any]]], set[str]]:
@@ -104,16 +111,149 @@ def build_tools(ctx: "AppContext", provider: str) -> List[Dict[str, Any]]:
     elif provider == "xai":
         defaults["x_search"] = True
         defaults["image_generation"] = True
+        defaults["video_generation"] = True
     elif provider == "openai":
         defaults["image_generation"] = True
     for tool_name, default_value in defaults.items():
+        if provider == "xai" and tool_name in {"image_generation", "video_generation"}:
+            continue
         tool = build_hosted_tool(ctx, provider, tool_name, hosted_config.get(tool_name, default_value))
         if tool:
             tools.append(tool)
+    if provider == "xai":
+        tools.extend(build_xai_media_tools(hosted_config))
     for name, spec in (ctx.cfg.llm.mcp_servers or {}).items():
         tool = build_mcp_tool(ctx, provider, name, spec)
         if tool:
             tools.append(tool)
+    return tools
+
+
+def build_xai_media_tools(hosted_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    tools: List[Dict[str, Any]] = []
+    if hosted_config.get("image_generation", True) not in (None, False):
+        tools.extend(
+            [
+                {
+                    "type": "function",
+                    "name": "generate_image",
+                    "description": "Generate an image from a text description using the Grok Imagine API.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {
+                                "type": "string",
+                                "description": "A detailed description of the image to generate.",
+                            },
+                            "aspect_ratio": {
+                                "type": "string",
+                                "description": "Image aspect ratio.",
+                                "enum": XAI_IMAGE_ASPECT_RATIOS,
+                            },
+                            "resolution": {
+                                "type": "string",
+                                "description": "Output resolution: '1k' (default) or '2k'.",
+                                "enum": ["1k", "2k"],
+                            },
+                            "n": {
+                                "type": "integer",
+                                "description": "Number of images to generate (1-10).",
+                                "minimum": 1,
+                                "maximum": 10,
+                            },
+                        },
+                        "required": ["prompt"],
+                        "additionalProperties": False,
+                    },
+                },
+                {
+                    "type": "function",
+                    "name": "edit_image",
+                    "description": "Edit one or more source images with the Grok Imagine API.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {
+                                "type": "string",
+                                "description": "A detailed description of the requested image edit.",
+                            },
+                            "image_url": {
+                                "type": "string",
+                                "description": "Public URL or data URI for a single source image.",
+                            },
+                            "image_urls": {
+                                "type": "array",
+                                "description": "Optional list of up to 3 public URLs or data URIs for source images.",
+                                "items": {"type": "string"},
+                                "minItems": 1,
+                                "maxItems": 3,
+                            },
+                            "aspect_ratio": {
+                                "type": "string",
+                                "description": "Image aspect ratio.",
+                                "enum": XAI_IMAGE_ASPECT_RATIOS,
+                            },
+                            "resolution": {
+                                "type": "string",
+                                "description": "Output resolution: '1k' (default) or '2k'.",
+                                "enum": ["1k", "2k"],
+                            },
+                            "n": {
+                                "type": "integer",
+                                "description": "Number of edited images to return (1-10).",
+                                "minimum": 1,
+                                "maximum": 10,
+                            },
+                        },
+                        "required": ["prompt"],
+                        "additionalProperties": False,
+                    },
+                },
+            ]
+        )
+    if hosted_config.get("video_generation", True) not in (None, False):
+        tools.append(
+            {
+                "type": "function",
+                "name": "generate_video",
+                "description": "Generate a new video, animate an image, or edit an existing video using Grok Imagine.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": "A detailed description of the video to create or the edit to apply.",
+                        },
+                        "image_url": {
+                            "type": "string",
+                            "description": "Optional public URL or data URI for image-to-video generation.",
+                        },
+                        "video_url": {
+                            "type": "string",
+                            "description": "Optional public URL for editing an existing video.",
+                        },
+                        "duration": {
+                            "type": "integer",
+                            "description": "Video duration in seconds for new generations (1-15).",
+                            "minimum": 1,
+                            "maximum": 15,
+                        },
+                        "aspect_ratio": {
+                            "type": "string",
+                            "description": "Video aspect ratio for new generations.",
+                            "enum": XAI_VIDEO_ASPECT_RATIOS,
+                        },
+                        "resolution": {
+                            "type": "string",
+                            "description": "Video output resolution.",
+                            "enum": XAI_VIDEO_RESOLUTIONS,
+                        },
+                    },
+                    "required": ["prompt"],
+                    "additionalProperties": False,
+                },
+            }
+        )
     return tools
 
 
@@ -126,44 +266,7 @@ def build_hosted_tool(
     if spec in (None, False):
         return None
     if tool_name == "image_generation" and provider == "xai":
-        if spec is False:
-            return None
-        return {
-            "type": "function",
-            "name": "generate_image",
-            "description": "Generate an image from a text description using the Grok Imagine API.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "A detailed description of the image to generate.",
-                    },
-                    "aspect_ratio": {
-                        "type": "string",
-                        "description": "Image aspect ratio.",
-                        "enum": [
-                            "1:1", "16:9", "9:16", "4:3", "3:4",
-                            "3:2", "2:3", "2:1", "1:2",
-                            "19.5:9", "9:19.5", "20:9", "9:20", "auto",
-                        ],
-                    },
-                    "resolution": {
-                        "type": "string",
-                        "description": "Output resolution: '1k' (default) or '2k'.",
-                        "enum": ["1k", "2k"],
-                    },
-                    "n": {
-                        "type": "integer",
-                        "description": "Number of images to generate (1-10).",
-                        "minimum": 1,
-                        "maximum": 10,
-                    },
-                },
-                "required": ["prompt"],
-                "additionalProperties": False,
-            },
-        }
+        return build_xai_media_tools({"image_generation": spec, "video_generation": False})[0]
     tool: Dict[str, Any] = {"type": tool_name}
     if isinstance(spec, dict):
         tool.update(spec)

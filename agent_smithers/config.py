@@ -184,6 +184,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         "code_interpreter": _parse_bool(os.getenv("TOOLS_CODE_INTERPRETER"), True),
         "x_search": _parse_bool(os.getenv("TOOLS_X_SEARCH"), True),
         "image_generation": _parse_bool(os.getenv("TOOLS_IMAGE_GENERATION"), True),
+        "video_generation": _parse_bool(os.getenv("TOOLS_VIDEO_GENERATION"), True),
     }
 
     llm = LLMConfig(

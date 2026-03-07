@@ -43,7 +43,9 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
 - `TOOLS_CODE_INTERPRETER`
   `true` or `false`.
 - `TOOLS_IMAGE_GENERATION`
-  `true` or `false`. Used by OpenAI models.
+  `true` or `false`. Used by OpenAI hosted image generation and xAI Grok Imagine image tools.
+- `TOOLS_VIDEO_GENERATION`
+  `true` or `false`. Used by xAI Grok Imagine video generation and editing tools.
 - `MCP_SERVERS`
   JSON object defining remote MCP servers.
 - `LLM_TIMEOUT`
@@ -79,6 +81,7 @@ TOOLS_WEB_SEARCH_COUNTRY=US
 TOOLS_X_SEARCH=false
 TOOLS_CODE_INTERPRETER=true
 TOOLS_IMAGE_GENERATION=true
+TOOLS_VIDEO_GENERATION=true
 MCP_SERVERS={"deepwiki":{"server_url":"https://mcp.deepwiki.com/mcp","require_approval":"never"}}
 LLM_TIMEOUT=180
 MATRIX_SERVER=https://matrix.org
@@ -98,4 +101,5 @@ MATRIX_E2E=true
 - `OPENAI_MODELS` or `XAI_MODELS` is still useful as fallback even when `SERVER_MODELS=true`.
 - `TOOLS_WEB_SEARCH_COUNTRY` is currently applied only to OpenAI `web_search`, because xAI's provider docs do not document a country filter for `web_search` or `x_search`.
 - `TOOLS_WEB_SEARCH_COUNTRY` is sent as a structured OpenAI `web_search.user_location.country` value. For xAI search tools, which do not currently document a country parameter, the bot adds a search-policy instruction so `x_search` and `web_search` still bias toward US sources.
+- `TOOLS_VIDEO_GENERATION` currently applies only when the active model is from xAI and the model supports local xAI function tools.
 - Keep `.env` out of version control.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import httpx
@@ -12,6 +14,9 @@ class LLMClient:
     """Thin Responses API client for OpenAI-compatible providers."""
 
     LMSTUDIO_FALLBACK_USER_PROMPT = "Please continue the conversation."
+    XAI_IMAGE_MODEL = "grok-imagine-image"
+    XAI_VIDEO_MODEL = "grok-imagine-video"
+    VIDEO_POLL_INTERVAL_SECONDS = 5.0
 
     def __init__(self, cfg: AppConfig) -> None:
         self.cfg = cfg
@@ -71,6 +76,30 @@ class LLMClient:
                 merged.append(value)
                 seen.add(value)
         return merged
+
+    @staticmethod
+    def _xai_image_ref(url: str) -> Dict[str, Any]:
+        return {
+            "type": "image_url",
+            "url": url,
+        }
+
+    @staticmethod
+    def _xai_video_ref(url: str) -> Dict[str, Any]:
+        return {"url": url}
+
+    @staticmethod
+    def _has_video_url(payload: Dict[str, Any]) -> bool:
+        direct_url = payload.get("url")
+        if isinstance(direct_url, str) and direct_url:
+            return True
+        for key in ("video", "result", "output"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                nested_url = value.get("url")
+                if isinstance(nested_url, str) and nested_url:
+                    return True
+        return False
 
     def _headers(self, provider: str) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -231,7 +260,7 @@ class LLMClient:
         """Generate an image via xAI POST /v1/images/generations."""
         provider = self._provider_for_model(model)
         payload: Dict[str, Any] = {
-            "model": "grok-imagine-image",
+            "model": self.XAI_IMAGE_MODEL,
             "prompt": prompt,
             "n": n,
             "response_format": "b64_json",
@@ -249,6 +278,116 @@ class LLMClient:
             response.raise_for_status()
             return response.json()
 
+    async def edit_image(
+        self,
+        *,
+        prompt: str,
+        image_urls: List[str],
+        model: str,
+        n: int = 1,
+        aspect_ratio: Optional[str] = None,
+        resolution: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Edit one or more images via xAI POST /v1/images/edits."""
+        provider = self._provider_for_model(model)
+        cleaned_urls = [url.strip() for url in image_urls if str(url).strip()]
+        if not cleaned_urls:
+            raise ValueError("At least one image URL is required")
+        payload: Dict[str, Any] = {
+            "model": self.XAI_IMAGE_MODEL,
+            "prompt": prompt,
+            "n": n,
+            "response_format": "b64_json",
+        }
+        if len(cleaned_urls) == 1:
+            payload["image"] = self._xai_image_ref(cleaned_urls[0])
+        else:
+            payload["images"] = [self._xai_image_ref(url) for url in cleaned_urls]
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
+        if resolution:
+            payload["resolution"] = resolution
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
+            response = await client.post(
+                f"{self._base_url(provider)}/images/edits",
+                headers=self._headers(provider),
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def _poll_video_generation(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        provider: str,
+        request_id: str,
+    ) -> Dict[str, Any]:
+        deadline = time.monotonic() + float(self.cfg.llm.timeout)
+        while True:
+            response = await client.get(
+                f"{self._base_url(provider)}/videos/{request_id}",
+                headers=self._headers(provider),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            status = str(payload.get("status") or "").strip().lower()
+            if status in {"done", "completed", "succeeded", "success"} or self._has_video_url(payload):
+                return payload
+            if status in {"expired", "failed", "error", "cancelled"}:
+                raise RuntimeError(f"Video generation ended with status '{status}'")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for video generation request '{request_id}'")
+            await asyncio.sleep(self.VIDEO_POLL_INTERVAL_SECONDS)
+
+    async def generate_video(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        image_url: Optional[str] = None,
+        video_url: Optional[str] = None,
+        duration: Optional[int] = None,
+        aspect_ratio: Optional[str] = None,
+        resolution: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate or edit a video via xAI's asynchronous video API."""
+        provider = self._provider_for_model(model)
+        payload: Dict[str, Any] = {
+            "model": self.XAI_VIDEO_MODEL,
+            "prompt": prompt,
+        }
+        if video_url:
+            payload["video_url"] = video_url
+        else:
+            if image_url:
+                payload["image"] = self._xai_video_ref(image_url)
+            if duration is not None:
+                payload["duration"] = duration
+            if aspect_ratio:
+                payload["aspect_ratio"] = aspect_ratio
+            if resolution:
+                payload["resolution"] = resolution
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
+            response = await client.post(
+                f"{self._base_url(provider)}/videos/generations",
+                headers=self._headers(provider),
+                json=payload,
+            )
+            response.raise_for_status()
+            created = response.json()
+            status = str(created.get("status") or "").strip().lower()
+            if status in {"done", "completed", "succeeded", "success"} or self._has_video_url(created):
+                return created
+            request_id = str(created.get("id") or created.get("request_id") or "").strip()
+            if not request_id:
+                raise RuntimeError("Video generation response did not include a request id")
+            return await self._poll_video_generation(
+                client=client,
+                provider=provider,
+                request_id=request_id,
+            )
+
     async def download_file(
         self,
         file_id: str,
@@ -263,6 +402,16 @@ class LLMClient:
             url = f"{self._base_url(provider)}/files/{file_id}/content"
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
             response = await client.get(url, headers=self._headers(provider))
+            response.raise_for_status()
+            return response.content
+
+    async def download_url(self, url: str, *, provider: Optional[str] = None) -> bytes:
+        """Download a direct media URL, using provider auth only for first-party URLs."""
+        headers: Optional[Dict[str, str]] = None
+        if provider and url.startswith(self._base_url(provider)):
+            headers = self._headers(provider)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
+            response = await client.get(url, headers=headers)
             response.raise_for_status()
             return response.content
 

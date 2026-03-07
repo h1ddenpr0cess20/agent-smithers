@@ -38,7 +38,8 @@ def test_handle_model_show_set_reset():
 def test_handle_ai_strips_think_markers_and_trims():
     content = "<think>plan</think>  Hello  \n"
 
-    async def generate_reply(messages, model=None, room_id=None):
+    async def generate_reply(messages, model=None, room_id=None, thread_user=None):
+        assert thread_user == "@u"
         return content
 
     ctx = SimpleNamespace(
@@ -75,7 +76,8 @@ def test_handle_model_set_unknown_model_keeps_current():
 
 def test_handle_ai_with_empty_args_no_user_message_added():
     """When args is empty, no user message should be added to history."""
-    async def generate_reply(messages, model=None, room_id=None):
+    async def generate_reply(messages, model=None, room_id=None, thread_user=None):
+        assert thread_user == "@u"
         return "response"
 
     ctx = SimpleNamespace(
@@ -96,7 +98,8 @@ def test_handle_ai_with_empty_args_no_user_message_added():
 
 def test_handle_ai_error_sends_error_message():
     """When generate_reply raises, handle_ai should send an error message."""
-    async def generate_reply(messages, model=None, room_id=None):
+    async def generate_reply(messages, model=None, room_id=None, thread_user=None):
+        assert thread_user == "@u"
         raise RuntimeError("API failure")
 
     ctx = SimpleNamespace(

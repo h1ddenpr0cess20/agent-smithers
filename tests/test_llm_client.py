@@ -1,3 +1,5 @@
+import asyncio
+
 from agent_smithers.config import AppConfig, LLMConfig, MatrixConfig
 from agent_smithers.llm_client import LLMClient
 
@@ -12,6 +14,41 @@ def _cfg(default_model="gpt-5-mini"):
     )
     matrix = MatrixConfig(server="s", username="u", password="p", channels=["!r"], admin="a")
     return AppConfig(llm=llm, matrix=matrix)
+
+
+class FakeResponse:
+    def __init__(self, payload=None, content=b""):
+        self._payload = payload or {}
+        self.content = content
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+class RecordingAsyncClient:
+    responses = []
+    requests = []
+
+    def __init__(self, *args, **kwargs):
+        del args, kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        del exc_type, exc, tb
+        return False
+
+    async def post(self, url, headers=None, json=None):
+        self.requests.append(("POST", url, headers, json))
+        return self.responses.pop(0)
+
+    async def get(self, url, headers=None):
+        self.requests.append(("GET", url, headers, None))
+        return self.responses.pop(0)
 
 
 def test_build_input_items_splits_system_messages():
@@ -360,3 +397,86 @@ def test_merge_include_items_deduplicates():
 def test_merge_include_items_non_list_existing():
     result = LLMClient._merge_include_items(None, ["a"])
     assert result == ["a"]
+
+
+def test_edit_image_posts_to_xai_edits_endpoint(monkeypatch):
+    RecordingAsyncClient.requests = []
+    RecordingAsyncClient.responses = [FakeResponse({"data": [{"b64_json": "abc"}]})]
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+    client = LLMClient(_cfg("grok-4"))
+    result = asyncio.run(
+        client.edit_image(
+            prompt="remove the background",
+            image_urls=["https://example.com/source.png"],
+            model="grok-4",
+            resolution="2k",
+        )
+    )
+    assert result["data"][0]["b64_json"] == "abc"
+    method, url, headers, payload = RecordingAsyncClient.requests[0]
+    assert method == "POST"
+    assert url == "https://api.x.ai/v1/images/edits"
+    assert headers["Authorization"] == "Bearer X"
+    assert payload["model"] == "grok-imagine-image"
+    assert payload["prompt"] == "remove the background"
+    assert payload["image"]["url"] == "https://example.com/source.png"
+    assert payload["image"]["type"] == "image_url"
+    assert payload["resolution"] == "2k"
+
+
+def test_generate_video_polls_until_completed(monkeypatch):
+    RecordingAsyncClient.requests = []
+    RecordingAsyncClient.responses = [
+        FakeResponse({"id": "vid_1", "status": "pending"}),
+        FakeResponse({"id": "vid_1", "status": "completed", "url": "https://cdn.example.com/out.mp4"}),
+    ]
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+
+    async def _noop_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("agent_smithers.llm_client.asyncio.sleep", _noop_sleep)
+    client = LLMClient(_cfg("grok-4"))
+    result = asyncio.run(
+        client.generate_video(
+            prompt="slow dolly shot",
+            model="grok-4",
+            image_url="https://example.com/source.png",
+            duration=5,
+            aspect_ratio="16:9",
+            resolution="720p",
+        )
+    )
+    assert result["url"] == "https://cdn.example.com/out.mp4"
+    post_method, post_url, _, post_payload = RecordingAsyncClient.requests[0]
+    get_method, get_url, _, _ = RecordingAsyncClient.requests[1]
+    assert post_method == "POST"
+    assert post_url == "https://api.x.ai/v1/videos/generations"
+    assert post_payload["image"]["url"] == "https://example.com/source.png"
+    assert post_payload["duration"] == 5
+    assert post_payload["aspect_ratio"] == "16:9"
+    assert post_payload["resolution"] == "720p"
+    assert get_method == "GET"
+    assert get_url == "https://api.x.ai/v1/videos/vid_1"
+
+
+def test_generate_video_uses_edits_endpoint_for_existing_video(monkeypatch):
+    RecordingAsyncClient.requests = []
+    RecordingAsyncClient.responses = [
+        FakeResponse({"id": "vid_2", "status": "completed", "url": "https://cdn.example.com/edited.mp4"})
+    ]
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+    client = LLMClient(_cfg("grok-4"))
+    result = asyncio.run(
+        client.generate_video(
+            prompt="add dramatic lighting",
+            model="grok-4",
+            video_url="https://example.com/input.mp4",
+        )
+    )
+    assert result["url"] == "https://cdn.example.com/edited.mp4"
+    method, url, _, payload = RecordingAsyncClient.requests[0]
+    assert method == "POST"
+    assert url == "https://api.x.ai/v1/videos/generations"
+    assert payload["video_url"] == "https://example.com/input.mp4"
+    assert "duration" not in payload

@@ -27,7 +27,8 @@ def test_x_supports_display_names_with_spaces():
     history.init_prompt("!r", "@john:hs")
     history.init_prompt("!r", "@jane:hs")
 
-    async def generate_reply(messages, model=None, room_id=None):
+    async def generate_reply(messages, model=None, room_id=None, thread_user=None):
+        assert thread_user == "@john:hs"
         return "got it"
 
     ctx = SimpleNamespace(
@@ -52,7 +53,8 @@ def test_x_keeps_matrix_id_targeting():
     matrix = FakeMatrix()
     history = HistoryStore("you are ", ".", "helper")
 
-    async def generate_reply(messages, model=None, room_id=None):
+    async def generate_reply(messages, model=None, room_id=None, thread_user=None):
+        assert thread_user == "@target:hs"
         return "got it"
 
     ctx = SimpleNamespace(

@@ -23,7 +23,8 @@ class FakeMatrix:
 
 
 def _make_ctx(*, generate_reply_result="I am Shakespeare", generate_reply_error=None):
-    async def generate_reply(messages, model=None, room_id=None):
+    async def generate_reply(messages, model=None, room_id=None, thread_user=None):
+        assert thread_user == "@u"
         if generate_reply_error:
             raise generate_reply_error
         return generate_reply_result
@@ -117,8 +118,9 @@ def test_handle_persona_uses_per_user_model():
     """When a user has a per-user model set, _respond should pass it to generate_reply."""
     captured = {}
 
-    async def generate_reply(messages, model=None, room_id=None):
+    async def generate_reply(messages, model=None, room_id=None, thread_user=None):
         captured["model"] = model
+        captured["thread_user"] = thread_user
         return "ok"
 
     ctx = _make_ctx()
@@ -126,3 +128,4 @@ def test_handle_persona_uses_per_user_model():
     ctx.user_models = {"!r": {"@u": "grok-4"}}
     asyncio.run(handle_persona(ctx, "!r", "@u", "User", "pirate"))
     assert captured["model"] == "grok-4"
+    assert captured["thread_user"] == "@u"

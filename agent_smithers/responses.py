@@ -4,6 +4,7 @@ import base64
 import json
 import tempfile
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from .context import AppContext
@@ -180,6 +181,7 @@ async def send_response_artifacts(
     room_id: Optional[str],
     *,
     provider: str,
+    thread_user: Optional[str] = None,
 ) -> bool:
     if not room_id:
         return False
@@ -187,7 +189,15 @@ async def send_response_artifacts(
     for source in iter_image_sources(response):
         try:
             if source.get("inline"):
-                image_bytes = decode_base64_image(str(source["inline"]))
+                inline_ref = str(source["inline"])
+                image_bytes = decode_base64_image(inline_ref)
+                ctx._remember_generated_media(
+                    room_id,
+                    thread_user,
+                    kind="image",
+                    reference=inline_ref if inline_ref.startswith("data:") else f"data:image/png;base64,{inline_ref}",
+                    mime_type="image/png",
+                )
             else:
                 file_id = str(source.get("file_id") or "")
                 if not file_id:
@@ -196,6 +206,13 @@ async def send_response_artifacts(
                     provider=provider,
                     file_id=file_id,
                     container_id=source.get("container_id"),
+                )
+                ctx._remember_generated_media(
+                    room_id,
+                    thread_user,
+                    kind="image",
+                    reference=f"data:image/png;base64,{base64.b64encode(image_bytes).decode()}",
+                    mime_type="image/png",
                 )
             path = ctx._write_artifact(image_bytes, ".png")
             await ctx.matrix.send_image(room_id=room_id, path=path, filename=None, log=ctx.log)
@@ -259,13 +276,14 @@ async def handle_generate_image_calls(
     *,
     model: str,
     room_id: Optional[str],
+    thread_user: Optional[str] = None,
 ) -> Optional[List[Dict[str, Any]]]:
-    """Execute any generate_image function calls in the response and return tool output items."""
+    """Execute local xAI media function calls and return tool output items."""
     calls = [
         item for item in (response.get("output") or [])
         if isinstance(item, dict)
         and item.get("type") == "function_call"
-        and item.get("name") == "generate_image"
+        and item.get("name") in {"generate_image", "edit_image", "generate_video"}
     ]
     if not calls:
         return None
@@ -277,27 +295,42 @@ async def handle_generate_image_calls(
             prompt = str(args.get("prompt") or "").strip()
             if not prompt:
                 raise ValueError("Empty prompt")
-            img_response = await ctx.llm.generate_image(
-                prompt=prompt,
-                model=model,
-                n=int(args["n"]) if args.get("n") else 1,
-                aspect_ratio=str(args["aspect_ratio"]) if args.get("aspect_ratio") else None,
-                resolution=str(args["resolution"]) if args.get("resolution") else None,
-            )
-            sent_any = False
-            for entry in img_response.get("data", []) or []:
-                b64 = entry.get("b64_json")
-                if not b64:
-                    continue
-                image_bytes = base64.b64decode(b64)
-                path = ctx._write_artifact(image_bytes, ".png")
-                if room_id:
-                    await ctx.matrix.send_image(room_id=room_id, path=path, filename=None, log=ctx.log)
-                    sent_any = True
-            result = "Image generated and sent." if sent_any else "Image generated."
+            name = str(call.get("name") or "")
+            if name == "generate_image":
+                result = await _execute_generate_image_call(
+                    ctx,
+                    model=model,
+                    room_id=room_id,
+                    thread_user=thread_user,
+                    prompt=prompt,
+                    args=args,
+                )
+            elif name == "edit_image":
+                result = await _execute_edit_image_call(
+                    ctx,
+                    model=model,
+                    room_id=room_id,
+                    thread_user=thread_user,
+                    prompt=prompt,
+                    args=args,
+                )
+            else:
+                result = await _execute_generate_video_call(
+                    ctx,
+                    model=model,
+                    room_id=room_id,
+                    thread_user=thread_user,
+                    prompt=prompt,
+                    args=args,
+                )
         except Exception:
-            ctx.logger.exception("generate_image tool call failed")
-            result = "Image generation failed."
+            ctx.logger.exception("%s tool call failed", call.get("name"))
+            if call.get("name") == "generate_video":
+                result = "Video generation failed."
+            elif call.get("name") == "edit_image":
+                result = "Image editing failed."
+            else:
+                result = "Image generation failed."
         if call_id:
             output_items.append({
                 "type": "function_call_output",
@@ -307,6 +340,166 @@ async def handle_generate_image_calls(
     return output_items or None
 
 
+async def _send_base64_images(
+    ctx: "AppContext",
+    response: Dict[str, Any],
+    *,
+    room_id: Optional[str],
+    thread_user: Optional[str],
+) -> bool:
+    sent_any = False
+    for entry in response.get("data", []) or []:
+        b64 = entry.get("b64_json")
+        if not b64:
+            continue
+        image_bytes = base64.b64decode(b64)
+        ctx._remember_generated_media(
+            room_id,
+            thread_user,
+            kind="image",
+            reference=f"data:image/png;base64,{b64}",
+            mime_type="image/png",
+        )
+        path = ctx._write_artifact(image_bytes, ".png")
+        if room_id:
+            await ctx.matrix.send_image(room_id=room_id, path=path, filename=None, log=ctx.log)
+            sent_any = True
+    return sent_any
+
+
+def _extract_image_edit_urls(args: Dict[str, Any]) -> List[str]:
+    image_urls = [
+        str(value).strip()
+        for value in (args.get("image_urls") or [])
+        if str(value).strip()
+    ]
+    image_url = str(args.get("image_url") or "").strip()
+    if image_url:
+        image_urls.insert(0, image_url)
+    unique_urls: List[str] = []
+    seen = set()
+    for value in image_urls:
+        if value not in seen:
+            unique_urls.append(value)
+            seen.add(value)
+    return unique_urls
+
+
+def _guess_media_suffix(url: str, default: str) -> str:
+    suffix = urlparse(url).path.rsplit("/", 1)[-1]
+    if "." not in suffix:
+        return default
+    ext = "." + suffix.rsplit(".", 1)[-1].lower()
+    if not ext or len(ext) > 8:
+        return default
+    return ext
+
+
+def _extract_video_url(payload: Dict[str, Any]) -> Optional[str]:
+    direct_url = payload.get("url")
+    if isinstance(direct_url, str) and direct_url:
+        return direct_url
+    for key in ("video", "result", "output"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            nested_url = value.get("url")
+            if isinstance(nested_url, str) and nested_url:
+                return nested_url
+    return None
+
+
+async def _execute_generate_image_call(
+    ctx: "AppContext",
+    *,
+    model: str,
+    room_id: Optional[str],
+    thread_user: Optional[str],
+    prompt: str,
+    args: Dict[str, Any],
+) -> str:
+    img_response = await ctx.llm.generate_image(
+        prompt=prompt,
+        model=model,
+        n=int(args["n"]) if args.get("n") else 1,
+        aspect_ratio=str(args["aspect_ratio"]) if args.get("aspect_ratio") else None,
+        resolution=str(args["resolution"]) if args.get("resolution") else None,
+    )
+    sent_any = await _send_base64_images(ctx, img_response, room_id=room_id, thread_user=thread_user)
+    return "Image generated and sent." if sent_any else "Image generated."
+
+
+async def _execute_edit_image_call(
+    ctx: "AppContext",
+    *,
+    model: str,
+    room_id: Optional[str],
+    thread_user: Optional[str],
+    prompt: str,
+    args: Dict[str, Any],
+) -> str:
+    image_urls = _extract_image_edit_urls(args)
+    if not image_urls:
+        latest_image = ctx._latest_generated_media(room_id, thread_user, kind="image")
+        if latest_image:
+            image_urls = [latest_image]
+        else:
+            raise ValueError("No image_url or image_urls provided")
+    img_response = await ctx.llm.edit_image(
+        prompt=prompt,
+        image_urls=image_urls,
+        model=model,
+        n=int(args["n"]) if args.get("n") else 1,
+        aspect_ratio=str(args["aspect_ratio"]) if args.get("aspect_ratio") else None,
+        resolution=str(args["resolution"]) if args.get("resolution") else None,
+    )
+    sent_any = await _send_base64_images(ctx, img_response, room_id=room_id, thread_user=thread_user)
+    return "Image edited and sent." if sent_any else "Image edited."
+
+
+async def _execute_generate_video_call(
+    ctx: "AppContext",
+    *,
+    model: str,
+    room_id: Optional[str],
+    thread_user: Optional[str],
+    prompt: str,
+    args: Dict[str, Any],
+) -> str:
+    image_url = str(args.get("image_url") or "").strip() or None
+    video_url = str(args.get("video_url") or "").strip() or None
+    if not image_url and not video_url:
+        image_url = ctx._latest_generated_media(room_id, thread_user, kind="image")
+        if not image_url:
+            video_url = ctx._latest_generated_media(room_id, thread_user, kind="video")
+    if image_url and video_url:
+        raise ValueError("Only one of image_url or video_url may be provided")
+    video_response = await ctx.llm.generate_video(
+        prompt=prompt,
+        model=model,
+        image_url=image_url,
+        video_url=video_url,
+        duration=int(args["duration"]) if args.get("duration") is not None else None,
+        aspect_ratio=str(args["aspect_ratio"]) if args.get("aspect_ratio") else None,
+        resolution=str(args["resolution"]) if args.get("resolution") else None,
+    )
+    final_url = _extract_video_url(video_response)
+    if not final_url:
+        raise ValueError("Video response did not include a downloadable URL")
+    ctx._remember_generated_media(
+        room_id,
+        thread_user,
+        kind="video",
+        reference=final_url,
+        mime_type="video/mp4",
+    )
+    video_bytes = await ctx.llm.download_url(final_url, provider=ctx._provider_for_model(model))
+    path = ctx._write_artifact(video_bytes, _guess_media_suffix(final_url, ".mp4"))
+    if room_id:
+        await ctx.matrix.send_video(room_id=room_id, path=path, filename=None, log=ctx.log)
+        return "Video generated and sent."
+    return "Video generated."
+
+
 async def generate_reply(
     ctx: "AppContext",
     messages: List[Dict[str, Any]],
@@ -314,12 +507,21 @@ async def generate_reply(
     model: Optional[str] = None,
     room_id: Optional[str] = None,
     use_tools: Optional[bool] = None,
+    thread_user: Optional[str] = None,
 ) -> str:
     use_model = model or ctx.model
     provider = ctx._provider_for_model(use_model)
     active_tools = ctx._tools_for_model(use_model)
+    prepared_messages = list(messages)
+    media_note = ctx._thread_media_prompt_note(room_id, thread_user)
+    if media_note:
+        if prepared_messages and str(prepared_messages[0].get("role") or "") == "system":
+            prepared_messages[0] = dict(prepared_messages[0])
+            prepared_messages[0]["content"] = f'{prepared_messages[0]["content"]}\n\n{media_note}'
+        else:
+            prepared_messages.insert(0, {"role": "system", "content": media_note})
     prepared_messages = ctx._apply_search_country_policy(
-        messages,
+        prepared_messages,
         provider=provider,
         tools=active_tools,
     )
@@ -338,7 +540,13 @@ async def generate_reply(
         tools=active_tools if tools_enabled else None,
         response=response,
     )
-    image_outputs = await handle_generate_image_calls(ctx, response, model=use_model, room_id=room_id)
+    image_outputs = await handle_generate_image_calls(
+        ctx,
+        response,
+        model=use_model,
+        room_id=room_id,
+        thread_user=thread_user,
+    )
     if image_outputs:
         response = await ctx.llm.create_response(
             model=use_model,
@@ -348,7 +556,13 @@ async def generate_reply(
             tool_choice="auto" if tools_enabled and active_tools else None,
             options=ctx.options,
         )
-    sent_artifacts = await send_response_artifacts(ctx, response, room_id, provider=provider)
+    sent_artifacts = await send_response_artifacts(
+        ctx,
+        response,
+        room_id,
+        provider=provider,
+        thread_user=thread_user,
+    )
     text = extract_text(response)
     if text:
         return text
@@ -364,6 +578,14 @@ async def respond_with_tools(
     model: Optional[str] = None,
     room_id: Optional[str] = None,
     tool_choice: str = "auto",
+    thread_user: Optional[str] = None,
 ) -> str:
     del tool_choice
-    return await generate_reply(ctx, messages, model=model, room_id=room_id, use_tools=True)
+    return await generate_reply(
+        ctx,
+        messages,
+        model=model,
+        room_id=room_id,
+        use_tools=True,
+        thread_user=thread_user,
+    )
