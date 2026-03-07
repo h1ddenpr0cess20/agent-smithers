@@ -219,6 +219,36 @@ class LLMClient:
             response.raise_for_status()
             return response.json()
 
+    async def generate_image(
+        self,
+        *,
+        prompt: str,
+        model: str,
+        n: int = 1,
+        aspect_ratio: Optional[str] = None,
+        resolution: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Generate an image via xAI POST /v1/images/generations."""
+        provider = self._provider_for_model(model)
+        payload: Dict[str, Any] = {
+            "model": "grok-imagine-image",
+            "prompt": prompt,
+            "n": n,
+            "response_format": "b64_json",
+        }
+        if aspect_ratio:
+            payload["aspect_ratio"] = aspect_ratio
+        if resolution:
+            payload["resolution"] = resolution
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
+            response = await client.post(
+                f"{self._base_url(provider)}/images/generations",
+                headers=self._headers(provider),
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def download_file(
         self,
         file_id: str,
