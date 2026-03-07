@@ -15,11 +15,7 @@ async def handle_reset(ctx: Any, room_id: str, sender_id: str, sender_display: s
     """
     stock = args.strip().lower() == "stock"
     # Match reference behavior: reset history; if not stock, seed default persona
-    try:
-        ctx.history.reset(room_id, sender_id, stock=stock)
-    except Exception:
-        # Fallback to clear if reset not available
-        ctx.history.clear(room_id, sender_id)
+    ctx.history.reset(room_id, sender_id, stock=stock)
     if stock:
         body = f"Stock settings applied for {sender_display}"
         try:
@@ -42,10 +38,7 @@ async def handle_clear(ctx: Any, room_id: str, sender_id: str, sender_display: s
     Clears conversation history for all rooms/users and restores the default
     model and personality.
     """
-    try:
-        ctx.history.clear_all()
-    except Exception:
-        pass
+    ctx.history.clear_all()
     ctx.model = ctx.default_model
     ctx.personality = ctx.default_personality
     body = "Bot has been reset for everyone"

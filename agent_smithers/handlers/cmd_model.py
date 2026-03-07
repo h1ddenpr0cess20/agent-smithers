@@ -24,13 +24,10 @@ async def handle_model(ctx: Any, room_id: str, sender_id: str, sender_display: s
     arg = (args or "").strip()
     if not arg:
         sections = []
-        try:
-            for provider, models in sorted(ctx.models.items()):
-                if not models:
-                    continue
-                sections.append(f"**{_provider_label(str(provider))}**: {', '.join(sorted(models))}")
-        except Exception:
-            pass
+        for provider, models in sorted(ctx.models.items()):
+            if not models:
+                continue
+            sections.append(f"**{_provider_label(str(provider))}**: {', '.join(sorted(models))}")
         available = "\n".join(sections) if sections else "None"
         body = f"**Current model**: {ctx.model}\n**Available models**:\n{available}"
         html = ctx.render(body)

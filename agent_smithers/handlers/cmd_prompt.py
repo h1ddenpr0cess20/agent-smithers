@@ -15,13 +15,10 @@ async def handle_persona(ctx: Any, room_id: str, sender_id: str, sender_display:
     """
     persona = args.strip()
     # Initialize a fresh system prompt using persona
-    try:
-        ctx.history.init_prompt(room_id, sender_id, persona=persona or ctx.default_personality)
-        ctx.log(
-            f"System prompt for {sender_display} ({sender_id}) set to '{(ctx.cfg.llm.prompt[0] if ctx.cfg.llm.prompt else 'you are ')}{persona or ctx.default_personality}{(ctx.cfg.llm.prompt[1] if len(ctx.cfg.llm.prompt) > 1 else '.')}"  # noqa: E501
-        )
-    except Exception:
-        pass
+    ctx.history.init_prompt(room_id, sender_id, persona=persona or ctx.default_personality)
+    ctx.log(
+        f"System prompt for {sender_display} ({sender_id}) set to '{(ctx.cfg.llm.prompt[0] if ctx.cfg.llm.prompt else 'you are ')}{persona or ctx.default_personality}{(ctx.cfg.llm.prompt[1] if len(ctx.cfg.llm.prompt) > 1 else '.')}"  # noqa: E501
+    )
     ctx.history.add(room_id, sender_id, "user", "introduce yourself")
     await _respond(ctx, room_id, sender_id, sender_display)
 
@@ -40,11 +37,8 @@ async def handle_custom(ctx: Any, room_id: str, sender_id: str, sender_display: 
     if not custom:
         return
     # Replace system prompt with custom text
-    try:
-        ctx.history.init_prompt(room_id, sender_id, custom=custom)
-        ctx.log(f"System prompt for {sender_display} ({sender_id}) set to '{custom}'")
-    except Exception:
-        pass
+    ctx.history.init_prompt(room_id, sender_id, custom=custom)
+    ctx.log(f"System prompt for {sender_display} ({sender_id}) set to '{custom}'")
     ctx.history.add(room_id, sender_id, "user", "introduce yourself")
     await _respond(ctx, room_id, sender_id, sender_display)
 

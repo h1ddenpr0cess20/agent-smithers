@@ -66,10 +66,7 @@ class AppContext:
         self.personality = cfg.llm.personality
         self.options = cfg.llm.options
         self.timeout = cfg.llm.timeout
-        try:
-            self.admins = list(getattr(cfg.matrix, "admins", []))
-        except Exception:
-            self.admins = []
+        self.admins = list(getattr(cfg.matrix, "admins", []))
         self.bot_id = "Agent Smithers"
         self.user_models: Dict[str, Dict[str, str]] = {}
 
@@ -268,6 +265,7 @@ class AppContext:
                 extensions=["extra", "fenced_code", "nl2br", "sane_lists", "tables", "codehilite"],
             )
         except Exception:
+            self.logger.exception("Markdown rendering failed")
             return None
 
     def clean_response_text(self, text: str, *, sender_display: str, sender_id: str) -> str:
@@ -581,12 +579,9 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     router.register(".help", handle_help)
     router.register(".mymodel", handle_mymodel)
     router.register(".tools", handle_tools, admin=True)
-    try:
-        from .handlers.cmd_verbose import handle_verbose
+    from .handlers.cmd_verbose import handle_verbose
 
-        router.register(".verbose", handle_verbose, admin=True)
-    except Exception:
-        pass
+    router.register(".verbose", handle_verbose, admin=True)
     router.register(".model", handle_model, admin=True)
     router.register(".clear", handle_clear, admin=True)
 
@@ -601,10 +596,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     await ctx.matrix.ensure_keys()
     await ctx.matrix.initial_sync()
 
-    try:
-        ctx.bot_id = await ctx.matrix.display_name(cfg.matrix.username)
-    except Exception:
-        ctx.bot_id = cfg.matrix.username
+    ctx.bot_id = await ctx.matrix.display_name(cfg.matrix.username)
 
     try:
         device_id = getattr(ctx.matrix.client, "device_id", None)
@@ -617,7 +609,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
                 handle.truncate()
             ctx.log(f"Persisted device_id to {config_path}")
     except Exception:
-        pass
+        ctx.logger.exception("Failed to persist device_id to config")
 
     for room in cfg.matrix.channels:
         try:
@@ -631,7 +623,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     security = Security(ctx.matrix, logger=ctx.logger)
     try:
         from nio import KeyVerificationEvent  # type: ignore
-    except Exception:
+    except ImportError:
         KeyVerificationEvent = None  # type: ignore
     try:
         if KeyVerificationEvent:

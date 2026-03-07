@@ -1,91 +1,96 @@
 # Agent Smithers
 
-Agent Smithers is a Matrix bot built around the Responses API. It keeps the upstream Matrix/history/command structure, and supports OpenAI or xAI with hosted tools plus remote MCP servers.
+A Matrix chatbot that connects to a homeserver and responds to messages using OpenAI, xAI (Grok), or LM Studio as the LLM backend.
 
-The name is a deliberate mashup of Agent Smith from *The Matrix* and Smithers, Mr. Burns' assistant from *The Simpsons*.
+## Table of Contents
 
-## Documentation
-
-- [Overview](docs/index.md)
-- [Getting Started](docs/getting-started.md)
-- [Configuration](docs/configuration.md)
-- [Commands](docs/commands.md)
-- [Tools & MCP](docs/tools-and-mcp.md)
-- [Images Directory](docs/images.md)
-- [Docker](docs/docker.md)
-- [CLI Reference](docs/cli.md)
-- [Operations & E2E](docs/operations.md)
-- [Architecture](docs/architecture.md)
-- [Development](docs/development.md)
-- [Migration](docs/migration.md)
-- [Legacy Map](docs/legacy-map.md)
-- [Security](docs/security.md)
-- [Not a Companion](docs/not-a-companion.md)
-- [AI Output Disclaimer](docs/ai-output-disclaimer.md)
-
-## Features
-
-- Dynamic personalities with quick switching
-- Per‑user history, isolated per room and user
-- Collaborative mode to talk across histories
-- OpenAI and xAI Responses API support with server-fetched model discovery
-- Hosted tool support for web search, code interpreter, image generation (OpenAI), and `x_search` (xAI)
-- Remote MCP server support through provider-hosted MCP tools
-- Admin controls for model switching and global resets
-
-## Installation
-
-From source (installs CLI):
-
-- `pip install .`
-- Or use pipx: `pipx install .`
-
-From source without installing the package:
-
-- `pip install -r requirements.txt`
-- Run with: `python -m agent_smithers --env-file .env`
-
-After installation, use the `agent-smithers` command.
+- [Quick Start](#quick-start)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Quick Start
 
-1) Create a Matrix account for the bot and note the server URL, username, and password.
-2) Copy `.env.example` to `.env`
-3) Fill in your provider key and Matrix settings in `.env`
-4) Run:
+```bash
+pip install .
+cp .env.example .env
+# Edit .env — set MATRIX_*, DEFAULT_MODEL, and at least one provider key
+agent-smithers --env-file .env
+```
 
-- Installed command: `agent-smithers --env-file .env`
-- As module: `python -m agent_smithers --env-file .env`
+Or without installing the package:
 
-## Usage
+```bash
+pip install -r requirements.txt
+python -m agent_smithers --env-file .env
+```
 
-Common commands (see [Commands](docs/commands.md) for the full list):
+## Documentation
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `.ai <message>` or `BotName: <message>` | Chat with the AI | `.ai Hello there!` |
-| `.x <user> <message>` | Continue another user's conversation | `.x Alice What did we discuss?` |
-| `.persona <text>` | Change your personality | `.persona helpful librarian` |
-| `.custom <prompt>` | Use a custom system prompt | `.custom You are a coding expert` |
-| `.reset` / `.stock` | Clear history (default/stock prompt) | `.reset` |
-| `.mymodel [name]` | Show/change personal model | `.mymodel gpt-4o-mini` |
-| `.model [name|reset]` (admin) | Show/change model | `.model gpt-5-mini` |
-| `.clear` (admin) | Reset globally for all users | `.clear` |
-| `.help` | Show inline help | `.help` |
+Full documentation lives in the [docs/](docs/) folder:
 
-## Encryption Support
+- [docs/getting-started.md](docs/getting-started.md) — prerequisites, install, first run
+- [docs/configuration.md](docs/configuration.md) — all environment variables with types and defaults
+- [docs/commands.md](docs/commands.md) — complete command reference
+- [docs/tools-and-mcp.md](docs/tools-and-mcp.md) — hosted tools and remote MCP server setup
+- [docs/lm-studio.md](docs/lm-studio.md) — local model setup via LM Studio
+- [docs/operations.md](docs/operations.md) — E2E encryption, device verification, store persistence
+- [docs/docker.md](docs/docker.md) — running in Docker
+- [docs/architecture.md](docs/architecture.md) — internal design
+- [docs/development.md](docs/development.md) — contributing and code style
 
-- Works in encrypted Matrix rooms using `matrix-nio[e2e]` with device verification.
-- Requires `libolm` available to Python for E2E. If unavailable, you can run without E2E; see [Operations](docs/operations.md) and [Verification](docs/verification.md).
-- Persist the `store/` directory to retain device keys and encryption state.
+## Commands
 
-## Community & Policies
+Send these in any room the bot has joined.
 
-- Code of Conduct: [Code of Conduct](CODE_OF_CONDUCT.md)
-- Contributing: [Contributing](CONTRIBUTING.md)
-- Security Policy: [Security Policy](SECURITY.md)
-- Security Guide: [Security Guide](docs/security.md)
+### User commands
+
+| Command | What it does |
+|---|---|
+| `.ai <message>` | Chat with the bot using your conversation history |
+| `BotName: <message>` | Same as `.ai` — address by name |
+| `.x <user> <message>` | Send a message into another user's conversation context |
+| `.persona <text>` | Set a personality using the configured prompt wrapper |
+| `.custom <prompt>` | Replace your system prompt with arbitrary text |
+| `.reset` | Clear your history and restore the default persona |
+| `.stock` | Clear your history and run without any system prompt |
+| `.mymodel [name]` | Show your current model, or set a per-user override |
+| `.help` | Show inline help (reads `help.md` if present) |
+
+### Admin commands
+
+Admins are set via `MATRIX_ADMINS` in `.env`.
+
+| Command | What it does |
+|---|---|
+| `.model [name\|reset]` | Show available models, or change the active model globally |
+| `.tools [on\|off\|toggle\|status]` | Enable or disable hosted tools and MCP at runtime |
+| `.clear` | Reset history and defaults for all users |
+| `.verbose [on\|off\|toggle]` | Control whether the brevity clause is included in new conversations |
+
+## Configuration
+
+Copy `.env.example` to `.env`. Minimum required variables:
+
+```env
+MATRIX_SERVER=https://matrix.org
+MATRIX_USERNAME=@bot:example.org
+MATRIX_PASSWORD=secret
+MATRIX_CHANNELS=!roomid:example.org
+DEFAULT_MODEL=gpt-4o
+OPENAI_API_KEY=sk-...
+```
+
+See [docs/configuration.md](docs/configuration.md) for all variables, including LM Studio, MCP servers, tool toggles, history size, and E2E encryption settings.
+
+## E2E Encryption
+
+The bot supports end-to-end encrypted Matrix rooms via `matrix-nio[e2e]`. This requires `libolm` to be available. Persist the `store/` directory (or whatever `MATRIX_STORE_PATH` points to) across restarts to retain device keys. See [docs/operations.md](docs/operations.md) for verification and troubleshooting.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution process and code style guide.
 
 ## License
 
-AGPL‑3.0 — see [License](LICENSE) for details.
+AGPL-3.0 — see [LICENSE](LICENSE) for details.

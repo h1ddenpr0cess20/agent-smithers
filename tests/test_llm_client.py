@@ -179,3 +179,184 @@ def test_build_request_payload_keeps_existing_lmstudio_user_turn():
         ],
     )
     assert payload["input"] == [{"role": "user", "content": "hello"}]
+
+
+# --- build_input_items edge cases ---
+
+def test_build_input_items_include_system_true_puts_system_in_input():
+    instructions, input_items = LLMClient.build_input_items(
+        [
+            {"role": "system", "content": "be concise"},
+            {"role": "user", "content": "hello"},
+        ],
+        include_system=True,
+    )
+    assert instructions is None  # no instructions extracted
+    assert input_items == [
+        {"role": "system", "content": "be concise"},
+        {"role": "user", "content": "hello"},
+    ]
+
+
+def test_build_input_items_skips_empty_role_or_content():
+    instructions, input_items = LLMClient.build_input_items(
+        [
+            {"role": "", "content": "ignored"},
+            {"role": "user", "content": ""},
+            {"role": "user", "content": "real"},
+        ]
+    )
+    assert input_items == [{"role": "user", "content": "real"}]
+    assert instructions is None
+
+
+def test_build_input_items_multiple_system_messages_joined():
+    instructions, input_items = LLMClient.build_input_items(
+        [
+            {"role": "system", "content": "rule 1"},
+            {"role": "system", "content": "rule 2"},
+            {"role": "user", "content": "go"},
+        ]
+    )
+    assert instructions == "rule 1\n\nrule 2"
+    assert len(input_items) == 1
+
+
+def test_build_input_items_ignores_unknown_roles():
+    """Roles other than system/user/assistant are silently dropped."""
+    instructions, input_items = LLMClient.build_input_items(
+        [
+            {"role": "function", "content": "data"},
+            {"role": "user", "content": "hello"},
+        ]
+    )
+    assert input_items == [{"role": "user", "content": "hello"}]
+
+
+# --- build_request_payload edge cases ---
+
+def test_build_request_payload_previous_response_id_suppresses_instructions():
+    client = LLMClient(_cfg())
+    payload = client.build_request_payload(
+        model="gpt-5-mini",
+        messages=[
+            {"role": "system", "content": "instructions here"},
+            {"role": "user", "content": "hello"},
+        ],
+        previous_response_id="resp_123",
+    )
+    assert "instructions" not in payload
+    assert payload["previous_response_id"] == "resp_123"
+
+
+def test_build_request_payload_no_tools_omits_tool_keys():
+    client = LLMClient(_cfg())
+    payload = client.build_request_payload(
+        model="gpt-5-mini",
+        messages=[{"role": "user", "content": "hello"}],
+    )
+    assert "tools" not in payload
+    assert "tool_choice" not in payload
+
+
+def test_build_request_payload_with_input_items_instead_of_messages():
+    client = LLMClient(_cfg())
+    payload = client.build_request_payload(
+        model="gpt-5-mini",
+        input_items=[
+            {"type": "mcp_approval_response", "approve": True},
+        ],
+        previous_response_id="resp_1",
+    )
+    assert payload["input"] == [{"type": "mcp_approval_response", "approve": True}]
+    assert payload["previous_response_id"] == "resp_1"
+
+
+def test_build_request_payload_options_none_values_omitted():
+    client = LLMClient(_cfg())
+    payload = client.build_request_payload(
+        model="gpt-5-mini",
+        messages=[{"role": "user", "content": "hi"}],
+        options={"temperature": 0.5, "top_p": None},
+    )
+    assert payload["temperature"] == 0.5
+    assert "top_p" not in payload
+
+
+# --- _is_chat_model edge cases ---
+
+def test_is_chat_model_openai_date_suffix_blocked():
+    assert LLMClient._is_chat_model("openai", "gpt-4.1-2025-04-14") is False
+
+
+def test_is_chat_model_openai_non_gpt_prefix_blocked():
+    assert LLMClient._is_chat_model("openai", "dall-e-3") is False
+    assert LLMClient._is_chat_model("openai", "whisper-1") is False
+
+
+def test_is_chat_model_xai_non_grok_blocked():
+    assert LLMClient._is_chat_model("xai", "something-else") is False
+
+
+def test_is_chat_model_xai_vision_blocked():
+    assert LLMClient._is_chat_model("xai", "grok-vision-beta") is False
+
+
+def test_is_chat_model_lmstudio_empty_string():
+    assert LLMClient._is_chat_model("lmstudio", "") is False
+    assert LLMClient._is_chat_model("lmstudio", "   ") is False
+
+
+# --- _fallback_base_url ---
+
+def test_fallback_base_url_values():
+    assert LLMClient._fallback_base_url("lmstudio") == "http://127.0.0.1:1234/v1"
+    assert LLMClient._fallback_base_url("xai") == "https://api.x.ai/v1"
+    assert LLMClient._fallback_base_url("openai") == "https://api.openai.com/v1"
+
+
+# --- _has_user_message ---
+
+def test_has_user_message_true():
+    assert LLMClient._has_user_message([{"role": "user", "content": "hi"}]) is True
+
+
+def test_has_user_message_false_empty_content():
+    assert LLMClient._has_user_message([{"role": "user", "content": ""}]) is False
+
+
+def test_has_user_message_false_no_items():
+    assert LLMClient._has_user_message([]) is False
+
+
+def test_has_user_message_skips_non_dict():
+    assert LLMClient._has_user_message(["not a dict", None]) is False
+
+
+# --- _headers ---
+
+def test_headers_includes_bearer_when_key_present():
+    client = LLMClient(_cfg())
+    headers = client._headers("openai")
+    assert headers["Authorization"] == "Bearer O"
+
+
+def test_headers_no_auth_when_key_empty():
+    client = LLMClient(_cfg())
+    headers = client._headers("lmstudio")
+    assert "Authorization" not in headers
+
+
+# --- _merge_include_items ---
+
+def test_merge_include_items_deduplicates():
+    result = LLMClient._merge_include_items(
+        ["a", "b"],
+        ["b", "c"],
+    )
+    assert result == ["a", "b", "c"]
+
+
+def test_merge_include_items_non_list_existing():
+    result = LLMClient._merge_include_items(None, ["a"])
+    assert result == ["a"]

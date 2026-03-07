@@ -54,30 +54,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     os.environ["INFINIGPT_ENV_FILE"] = env_file
     cfg = load_config(args.env_file)
     if args.model:
-        try:
-            cfg.llm.default_model = args.model
-        except Exception:
-            pass
+        cfg.llm.default_model = args.model
     if args.store_path:
-        try:
-            cfg.matrix.store_path = args.store_path
-        except Exception:
-            pass
+        cfg.matrix.store_path = args.store_path
     if args.server_models:
-        try:
-            cfg.llm.server_models = True
-        except Exception:
-            pass
+        cfg.llm.server_models = True
     if args.e2e:
-        try:
-            cfg.matrix.e2e = True
-        except Exception:
-            pass
+        cfg.matrix.e2e = True
     if args.no_e2e:
-        try:
-            cfg.matrix.e2e = False
-        except Exception:
-            pass
+        cfg.matrix.e2e = False
     logging.getLogger(__name__).info(
         "Loaded config. OpenAI models: %s; xAI models: %s; LM Studio models: %s; Default model: %s",
         ", ".join(cfg.llm.models.get("openai", [])),

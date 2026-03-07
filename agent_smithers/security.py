@@ -3,15 +3,13 @@ from typing import Any, Optional
 
 try:
     from nio import (
-        KeyVerificationEvent,
         KeyVerificationStart,
         KeyVerificationKey,
         KeyVerificationMac,
         KeyVerificationCancel,
         ToDeviceMessage,
     )
-except Exception:  # pragma: no cover
-    KeyVerificationEvent = object  # type: ignore
+except ImportError:  # pragma: no cover
     KeyVerificationStart = object  # type: ignore
     KeyVerificationKey = object  # type: ignore
     KeyVerificationMac = object  # type: ignore
