@@ -1,6 +1,83 @@
 import logging
 import logging.config
 import re
+from typing import Any, Optional
+
+
+_RICH_CONSOLE: Any = None
+_STATUS_CONTENT_PADDING = 20
+
+
+class _NoopStatus:
+    """Fallback status object when Rich status output is unavailable."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def __enter__(self) -> "_NoopStatus":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        del exc_type, exc, tb
+        return False
+
+    def update(
+        self,
+        status: Optional[str] = None,
+        *,
+        spinner: Optional[str] = None,
+        spinner_style: Optional[str] = None,
+        speed: Optional[float] = None,
+    ) -> None:
+        del spinner, spinner_style, speed
+        if status:
+            self.message = status
+
+
+class _RichStatus:
+    """Rich-backed spinner aligned with the log message content column."""
+
+    def __init__(self, console: Any, message: str, *, spinner: str) -> None:
+        from rich.live import Live
+        from rich.padding import Padding
+        from rich.status import Status
+
+        self._status = Status(message, spinner=spinner)
+        self._padding = Padding
+        self._live = Live(
+            self._renderable(),
+            console=console,
+            transient=True,
+            refresh_per_second=12,
+        )
+
+    def _renderable(self) -> Any:
+        return self._padding(self._status, (0, 0, 0, _STATUS_CONTENT_PADDING))
+
+    def __enter__(self) -> "_RichStatus":
+        self._live.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        self._live.stop()
+        del exc_type, exc, tb
+        return False
+
+    def update(
+        self,
+        status: Optional[str] = None,
+        *,
+        spinner: Optional[str] = None,
+        spinner_style: Optional[str] = None,
+        speed: Optional[float] = None,
+    ) -> None:
+        self._status.update(
+            status=status,
+            spinner=spinner,
+            spinner_style=spinner_style,
+            speed=speed,
+        )
+        self._live.update(self._renderable(), refresh=True)
 
 
 class MatrixHighlighter:
@@ -110,6 +187,8 @@ def setup_logging(level: str = "INFO", json: bool = False) -> None:
         json: When True, use a simpler formatter suitable for JSON-like
             ingestion; otherwise use a human-friendly rich console.
     """
+    global _RICH_CONSOLE
+
     lvl = getattr(logging, level.upper(), logging.INFO)
     logging.config.dictConfig({"version": 1, "disable_existing_loggers": True})
     try:
@@ -119,6 +198,7 @@ def setup_logging(level: str = "INFO", json: bool = False) -> None:
 
         rich_traceback_install(show_locals=False)
         console = Console(highlight=False, force_terminal=True)
+        _RICH_CONSOLE = console
         highlighter = MatrixHighlighter()
         handler = RichHandler(console=console, rich_tracebacks=True, markup=True, show_level=True, show_time=True, show_path=False, highlighter=highlighter)
         datefmt = "[%X]"
@@ -128,6 +208,7 @@ def setup_logging(level: str = "INFO", json: bool = False) -> None:
         logging.Formatter(fmt=fmt, datefmt=datefmt)
         pkg_logger.addHandler(handler); pkg_logger.propagate = False
     except Exception:
+        _RICH_CONSOLE = None
         fmt = ("%(asctime)s %(levelname)s %(name)s %(message)s" if json else "%(asctime)s - %(levelname)s - %(message)s")
         root = logging.getLogger(); root.handlers = []; root.setLevel(logging.ERROR)
         pkg_logger = logging.getLogger("agent_smithers"); pkg_logger.handlers = []; pkg_logger.setLevel(lvl)
@@ -142,3 +223,15 @@ def configure_logging(level: int = logging.INFO) -> None:
         level: Numeric logging level from the ``logging`` module.
     """
     setup_logging(logging.getLevelName(level))
+
+
+def spinner_status(
+    message: str,
+    *,
+    spinner: str = "dots",
+    enabled: bool = True,
+):
+    """Return a Rich status spinner when available, otherwise a no-op context manager."""
+    if not enabled or _RICH_CONSOLE is None:
+        return _NoopStatus(message)
+    return _RichStatus(_RICH_CONSOLE, message, spinner=spinner)

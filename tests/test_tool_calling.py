@@ -22,14 +22,20 @@ class FakeLLM:
                     }
                 ],
             }
-        assert payload["previous_response_id"] == "resp_1"
+        assert "previous_response_id" not in payload
         assert payload["input_items"] == [
+            {
+                "id": "approve_1",
+                "type": "mcp_approval_request",
+                "server_label": "deepwiki",
+            },
             {
                 "type": "mcp_approval_response",
                 "approval_request_id": "approve_1",
                 "approve": True,
             }
         ]
+        assert payload["instructions"] == "you are p."
         return {
             "id": "resp_2",
             "output": [
@@ -67,6 +73,27 @@ class CaptureLLM:
                 }
             ]
         }
+
+
+class RecordingStatus:
+    def __init__(self, message, events):
+        self.message = message
+        self.events = events
+
+    def __enter__(self):
+        self.events.append(("enter", self.message))
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        del exc_type, exc, tb
+        self.events.append(("exit", self.message))
+        return False
+
+    def update(self, status=None, **kwargs):
+        del kwargs
+        if status:
+            self.message = status
+            self.events.append(("update", status))
 
 
 def test_mcp_auto_approval_loop_completes():
@@ -156,6 +183,186 @@ def test_send_response_artifacts_handles_file_backed_image_payload():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
+def test_generate_reply_uses_spinner_status_while_waiting_for_model_response():
+    ctx = _ctx()
+    events = []
+    try:
+        ctx.llm = CaptureLLM()
+        ctx.status = lambda message, spinner="dots": RecordingStatus(message, events)
+        out = asyncio.run(
+            ctx.generate_reply(
+                [{"role": "user", "content": "hello"}],
+                room_id="!r",
+            )
+        )
+        assert out == "ok"
+        assert ("enter", "Generating reply with gpt-5-mini") in events
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_generate_video_call_updates_spinner_status():
+    class FakeVideoLLM:
+        async def generate_video(self, **kwargs):
+            assert kwargs["backend"] == "sora"
+            kwargs["on_status"]("Generating video with Sora [queued]")
+            return {"id": "vid_123"}
+
+        async def download_video_content(self, video_id, *, provider):
+            assert video_id == "vid_123"
+            assert provider == "openai"
+            return b"video-bytes"
+
+    ctx = _ctx()
+    events = []
+    try:
+        ctx.llm = FakeVideoLLM()
+        ctx.status = lambda message, spinner="dots": RecordingStatus(message, events)
+        result = asyncio.run(
+            ctx._handle_generate_image_calls(
+                {
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "name": "sora_generate_video",
+                            "call_id": "call_1",
+                            "arguments": '{"prompt":"animate this"}',
+                        }
+                    ]
+                },
+                model="gpt-5-mini",
+                room_id="!r",
+                thread_user="@user:test",
+            )
+        )
+        assert result == [
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "Video generated and sent.",
+            }
+        ]
+        assert ("enter", "Generating video with Sora") in events
+        assert ("update", "Generating video with Sora [queued]") in events
+        assert ("update", "Downloading video from Sora") in events
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_generate_reply_continues_openai_followup_after_local_tool_output():
+    class FakeOpenAIFollowupLLM:
+        def __init__(self):
+            self.calls = 0
+
+        async def create_response(self, **payload):
+            self.calls += 1
+            if self.calls == 1:
+                assert payload["model"] == "gpt-5-mini"
+                return {
+                    "id": "resp_1",
+                    "output": [
+                        {
+                            "id": "rs_1",
+                            "type": "reasoning",
+                            "summary": [],
+                        },
+                        {
+                            "type": "function_call",
+                            "name": "grok_generate_image",
+                            "call_id": "call_img",
+                            "arguments": '{"prompt":"draw a cat"}',
+                        }
+                    ],
+                }
+            if self.calls == 2:
+                assert "previous_response_id" not in payload
+                assert payload["input_items"] == [
+                    {"role": "user", "content": "make me a cat"},
+                    {"id": "rs_1", "type": "reasoning", "summary": []},
+                    {
+                        "type": "function_call",
+                        "name": "grok_generate_image",
+                        "call_id": "call_img",
+                        "arguments": '{"prompt":"draw a cat"}',
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "call_img",
+                        "output": "Image generated and sent.",
+                    },
+                ]
+                return {
+                    "id": "resp_2",
+                    "output": [
+                        {
+                            "id": "approve_1",
+                            "type": "mcp_approval_request",
+                            "server_label": "deepwiki",
+                        }
+                    ],
+                }
+            assert "previous_response_id" not in payload
+            assert payload["input_items"] == [
+                {"role": "user", "content": "make me a cat"},
+                {"id": "rs_1", "type": "reasoning", "summary": []},
+                {
+                    "type": "function_call",
+                    "name": "grok_generate_image",
+                    "call_id": "call_img",
+                    "arguments": '{"prompt":"draw a cat"}',
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_img",
+                    "output": "Image generated and sent.",
+                },
+                {
+                    "id": "approve_1",
+                    "type": "mcp_approval_request",
+                    "server_label": "deepwiki",
+                },
+                {
+                    "type": "mcp_approval_response",
+                    "approval_request_id": "approve_1",
+                    "approve": True,
+                },
+            ]
+            return {
+                "id": "resp_3",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "Here is the cat image."}],
+                    }
+                ],
+            }
+
+        async def generate_image(self, **payload):
+            assert payload["provider_override"] == "xai"
+            return {
+                "data": [
+                    {"b64_json": base64.b64encode(b"pngbytes").decode()}
+                ]
+            }
+
+    ctx = _ctx()
+    try:
+        ctx.llm = FakeOpenAIFollowupLLM()
+        ctx._mcp_auto_approve = {"deepwiki"}
+        out = asyncio.run(
+            ctx.generate_reply(
+                [{"role": "user", "content": "make me a cat"}],
+                model="gpt-5-mini",
+                room_id="!r",
+                use_tools=True,
+            )
+        )
+        assert out == "Here is the cat image."
+        assert len(ctx.matrix.sent_images) == 1
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
 def test_extract_text_keeps_inline_citation_markers():
     response = {
         "output_text": "Answer with sources【abc†source】",
@@ -222,7 +429,7 @@ def test_xai_hosted_tools_include_x_search_and_map_mcp_fields():
         assert {"type": "x_search"} in ctx.hosted_tools
         assert {"type": "code_interpreter"} in ctx.hosted_tools
         function_names = {tool["name"] for tool in ctx.hosted_tools if tool["type"] == "function"}
-        assert function_names == {"generate_image", "edit_image", "generate_video"}
+        assert function_names == {"grok_generate_image", "grok_edit_image", "grok_generate_video"}
         mcp_tool = next(tool for tool in ctx.hosted_tools if tool["type"] == "mcp")
         assert mcp_tool["allowed_tool_names"] == ["ask_question"]
         assert mcp_tool["extra_headers"] == {"X-Test": "1"}
@@ -255,9 +462,10 @@ def test_dual_provider_tool_sets_follow_selected_model():
         xai_tools = ctx._tools_for_model("grok-4")
         assert {"type": "image_generation"} in openai_tools
         assert {tool["name"] for tool in openai_tools if tool["type"] == "function"} == {
-            "generate_image",
-            "edit_image",
-            "generate_video",
+            "grok_generate_image",
+            "grok_edit_image",
+            "grok_generate_video",
+            "sora_generate_video",
         }
         assert {"type": "x_search"} not in openai_tools
         assert {"type": "x_search"} in xai_tools
@@ -297,9 +505,9 @@ def test_xai_non_grok4_models_do_not_get_hosted_tools_or_mcp():
         code_tools = ctx._tools_for_model("grok-code-fast-1")
         grok4_tools = ctx._tools_for_model("grok-4")
         assert {tool["name"] for tool in code_tools if tool["type"] == "function"} == {
-            "generate_image",
-            "edit_image",
-            "generate_video",
+            "grok_generate_image",
+            "grok_edit_image",
+            "grok_generate_video",
         }
         assert not any(tool["type"] == "web_search" for tool in code_tools)
         assert not any(tool["type"] == "x_search" for tool in code_tools)
@@ -846,7 +1054,7 @@ def test_xai_video_generation_tool_can_be_disabled():
     ctx = AppContext(cfg)
     try:
         function_names = {tool["name"] for tool in ctx._tools_for_model("grok-4") if tool["type"] == "function"}
-        assert function_names == {"generate_image", "edit_image"}
+        assert function_names == {"grok_generate_image", "grok_edit_image"}
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
@@ -969,7 +1177,7 @@ def test_handle_generate_image_calls_supports_edit_image():
             "output": [
                 {
                     "type": "function_call",
-                    "name": "edit_image",
+                    "name": "grok_edit_image",
                     "call_id": "call_1",
                     "arguments": '{"prompt":"make it cinematic","image_url":"https://example.com/source.png"}',
                 }
@@ -1009,7 +1217,7 @@ def test_handle_generate_image_calls_uses_latest_generated_image_when_edit_input
             "output": [
                 {
                     "type": "function_call",
-                    "name": "edit_image",
+                    "name": "grok_edit_image",
                     "call_id": "call_implicit",
                     "arguments": '{"prompt":"make it warmer"}',
                 }
@@ -1029,7 +1237,7 @@ def test_handle_generate_image_calls_uses_latest_generated_image_when_edit_input
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
-def test_handle_generate_image_calls_supports_generate_video():
+def test_handle_generate_image_calls_supports_grok_generate_video():
     ctx = _ctx()
     try:
         class FakeMediaLLM:
@@ -1048,7 +1256,7 @@ def test_handle_generate_image_calls_supports_generate_video():
             "output": [
                 {
                     "type": "function_call",
-                    "name": "generate_video",
+                    "name": "grok_generate_video",
                     "call_id": "call_2",
                     "arguments": '{"prompt":"pan slowly across the room","image_url":"https://example.com/source.png","duration":5}',
                 }
@@ -1067,7 +1275,7 @@ def test_handle_generate_image_calls_supports_generate_video():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
-def test_handle_generate_image_calls_supports_openai_generate_video():
+def test_handle_generate_image_calls_supports_sora_generate_video():
     ctx = _ctx()
     try:
         class FakeMediaLLM:
@@ -1076,7 +1284,7 @@ def test_handle_generate_image_calls_supports_openai_generate_video():
                 assert payload["image_url"] == "data:image/png;base64,c291cmNl"
                 assert payload["seconds"] == 8
                 assert payload["size"] == "1280x720"
-                assert payload["backend"] is None
+                assert payload["backend"] == "sora"
                 return {"id": "vid_openai"}
 
             async def download_video_content(self, video_id, *, provider):
@@ -1096,7 +1304,7 @@ def test_handle_generate_image_calls_supports_openai_generate_video():
             "output": [
                 {
                     "type": "function_call",
-                    "name": "generate_video",
+                    "name": "sora_generate_video",
                     "call_id": "call_openai_video",
                     "arguments": '{"prompt":"animate this logo","seconds":8,"size":"1280x720"}',
                 }
@@ -1117,7 +1325,7 @@ def test_handle_generate_image_calls_supports_openai_generate_video():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
-def test_handle_generate_image_calls_supports_sora_backend_from_xai_model():
+def test_handle_generate_image_calls_supports_sora_generate_video_from_xai_model():
     ctx = _ctx()
     try:
         class FakeMediaLLM:
@@ -1136,9 +1344,9 @@ def test_handle_generate_image_calls_supports_sora_backend_from_xai_model():
             "output": [
                 {
                     "type": "function_call",
-                    "name": "generate_video",
+                    "name": "sora_generate_video",
                     "call_id": "call_sora_backend",
-                    "arguments": '{"prompt":"turn this into a product video","backend":"sora","image_url":"data:image/png;base64,c291cmNl","seconds":4,"size":"1280x720"}',
+                    "arguments": '{"prompt":"turn this into a product video","image_url":"data:image/png;base64,c291cmNl","seconds":4,"size":"1280x720"}',
                 }
             ]
         }

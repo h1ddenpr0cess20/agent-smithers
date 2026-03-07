@@ -6,7 +6,7 @@ import mimetypes
 from io import BytesIO
 import re
 import time
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
@@ -107,6 +107,10 @@ class LLMClient:
                 if isinstance(nested_url, str) and nested_url:
                     return True
         return False
+
+    @staticmethod
+    def _video_backend_label(provider: str) -> str:
+        return "Sora" if provider == "openai" else "Grok"
 
     def _headers(self, provider: str) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -254,22 +258,23 @@ class LLMClient:
         previous_response_id: Optional[str] = None,
         input_items: Optional[List[Dict[str, Any]]] = None,
         options: Optional[Dict[str, Any]] = None,
+        instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build a Responses API request body."""
         provider = self._provider_for_model(model)
         payload: Dict[str, Any] = {"model": model}
-        instructions = None
+        derived_instructions = instructions
         derived_input: List[Dict[str, Any]] = []
         supports_instructions = self._supports_instructions(provider)
         if messages is not None:
-            instructions, derived_input = self.build_input_items(
+            derived_instructions, derived_input = self.build_input_items(
                 messages,
                 include_system=not supports_instructions,
             )
         if previous_response_id:
             payload["previous_response_id"] = previous_response_id
-        if supports_instructions and instructions and not previous_response_id:
-            payload["instructions"] = instructions
+        if supports_instructions and derived_instructions and not previous_response_id:
+            payload["instructions"] = derived_instructions
         final_input = input_items if input_items is not None else derived_input
         if provider == "lmstudio" and messages is not None and input_items is None:
             final_input = self._ensure_lmstudio_user_message(final_input)
@@ -302,6 +307,7 @@ class LLMClient:
         previous_response_id: Optional[str] = None,
         input_items: Optional[List[Dict[str, Any]]] = None,
         options: Optional[Dict[str, Any]] = None,
+        instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a response via the configured provider's Responses API."""
         provider = self._provider_for_model(model)
@@ -313,6 +319,7 @@ class LLMClient:
             previous_response_id=previous_response_id,
             input_items=input_items,
             options=options,
+            instructions=instructions,
         )
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
             response = await client.post(
@@ -399,6 +406,7 @@ class LLMClient:
         client: httpx.AsyncClient,
         provider: str,
         request_id: str,
+        on_status: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         deadline = time.monotonic() + float(self.cfg.llm.timeout)
         while True:
@@ -409,6 +417,9 @@ class LLMClient:
             response.raise_for_status()
             payload = response.json()
             status = str(payload.get("status") or "").strip().lower()
+            if on_status:
+                label = status or "pending"
+                on_status(f"Generating video with {self._video_backend_label(provider)} [{label}]")
             if status in {"done", "completed", "succeeded", "success"} or self._has_video_url(payload):
                 return payload
             if status in {"expired", "failed", "error", "cancelled"}:
@@ -430,6 +441,7 @@ class LLMClient:
         resolution: Optional[str] = None,
         seconds: Optional[int] = None,
         size: Optional[str] = None,
+        on_status: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
         """Generate or edit a video via xAI or OpenAI Sora."""
         provider = self._provider_for_model(model)
@@ -470,10 +482,13 @@ class LLMClient:
                 request_id = str(created.get("id") or "").strip()
                 if not request_id:
                     raise RuntimeError("OpenAI video response did not include an id")
+                if on_status:
+                    on_status(f"Generating video with {self._video_backend_label(provider)} [{status or 'queued'}]")
                 return await self._poll_video_generation(
                     client=client,
                     provider=provider,
                     request_id=request_id,
+                    on_status=on_status,
                 )
         payload: Dict[str, Any] = {
             "model": self.XAI_VIDEO_MODEL,
@@ -504,10 +519,13 @@ class LLMClient:
             request_id = str(created.get("id") or created.get("request_id") or "").strip()
             if not request_id:
                 raise RuntimeError("Video generation response did not include a request id")
+            if on_status:
+                on_status(f"Generating video with {self._video_backend_label(provider)} [{status or 'queued'}]")
             return await self._poll_video_generation(
                 client=client,
                 provider=provider,
                 request_id=request_id,
+                on_status=on_status,
             )
 
     async def download_video_content(self, video_id: str, *, provider: str) -> bytes:

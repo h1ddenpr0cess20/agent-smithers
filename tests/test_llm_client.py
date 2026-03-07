@@ -320,6 +320,48 @@ def test_build_request_payload_with_input_items_instead_of_messages():
     assert payload["previous_response_id"] == "resp_1"
 
 
+def test_build_request_payload_accepts_explicit_instructions_with_input_items():
+    client = LLMClient(_cfg())
+    payload = client.build_request_payload(
+        model="gpt-5-mini",
+        input_items=[
+            {"role": "user", "content": "hello"},
+        ],
+        instructions="be concise",
+    )
+    assert payload["instructions"] == "be concise"
+    assert payload["input"] == [{"role": "user", "content": "hello"}]
+
+
+def test_generate_video_reports_status_updates_during_polling(monkeypatch):
+    client = LLMClient(_cfg("gpt-5-mini"))
+    client.VIDEO_POLL_INTERVAL_SECONDS = 0
+    RecordingAsyncClient.responses = [
+        FakeResponse({"id": "vid_1", "status": "queued"}),
+        FakeResponse({"id": "vid_1", "status": "processing"}),
+        FakeResponse({"id": "vid_1", "status": "completed", "url": "https://example.com/video.mp4"}),
+    ]
+    RecordingAsyncClient.requests = []
+    status_updates = []
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+
+    result = asyncio.run(
+        client.generate_video(
+            prompt="hello",
+            model="gpt-5-mini",
+            backend="sora",
+            on_status=status_updates.append,
+        )
+    )
+
+    assert result["id"] == "vid_1"
+    assert status_updates == [
+        "Generating video with Sora [queued]",
+        "Generating video with Sora [processing]",
+        "Generating video with Sora [completed]",
+    ]
+
+
 def test_build_request_payload_options_none_values_omitted():
     client = LLMClient(_cfg())
     payload = client.build_request_payload(

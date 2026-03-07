@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from .config import AppConfig
 from .history import HistoryStore
 from .llm_client import LLMClient
+from .logging_conf import spinner_status
 from .markdown_utils import render_markdown
 from .matrix_client import MatrixClientWrapper
 from . import responses, tooling
@@ -119,6 +120,13 @@ class AppContext:
         if rendered is None:
             self.logger.exception("Markdown rendering failed")
         return rendered
+
+    def status(self, message: str, *, spinner: str = "dots"):
+        return spinner_status(
+            message,
+            spinner=spinner,
+            enabled=self.logger.isEnabledFor(logging.INFO),
+        )
 
     def clean_response_text(self, text: str, *, sender_display: str, sender_id: str) -> str:
         return responses.clean_response_text(
