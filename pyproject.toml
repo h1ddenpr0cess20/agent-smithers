@@ -11,7 +11,8 @@ dependencies = [
   "matrix-nio[e2e]",
   "httpx",
   "markdown",
-  "rich"
+  "rich",
+  "pillow"
 ]
 
 [project.scripts]

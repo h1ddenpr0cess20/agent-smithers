@@ -1,5 +1,8 @@
 import asyncio
+import base64
+from io import BytesIO
 
+from PIL import Image
 from agent_smithers.config import AppConfig, LLMConfig, MatrixConfig
 from agent_smithers.llm_client import LLMClient
 
@@ -42,13 +45,21 @@ class RecordingAsyncClient:
         del exc_type, exc, tb
         return False
 
-    async def post(self, url, headers=None, json=None):
-        self.requests.append(("POST", url, headers, json))
+    async def post(self, url, headers=None, json=None, files=None, data=None):
+        self.requests.append(("POST", url, headers, {"json": json, "files": files, "data": data}))
         return self.responses.pop(0)
 
     async def get(self, url, headers=None):
         self.requests.append(("GET", url, headers, None))
         return self.responses.pop(0)
+
+
+def _png_data_uri(width=64, height=64, color=(255, 0, 0, 255)):
+    image = Image.new("RGBA", (width, height), color)
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    encoded = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/png;base64,{encoded}"
 
 
 def test_build_input_items_splits_system_messages():
@@ -413,7 +424,8 @@ def test_edit_image_posts_to_xai_edits_endpoint(monkeypatch):
         )
     )
     assert result["data"][0]["b64_json"] == "abc"
-    method, url, headers, payload = RecordingAsyncClient.requests[0]
+    method, url, headers, request = RecordingAsyncClient.requests[0]
+    payload = request["json"]
     assert method == "POST"
     assert url == "https://api.x.ai/v1/images/edits"
     assert headers["Authorization"] == "Bearer X"
@@ -448,7 +460,8 @@ def test_generate_video_polls_until_completed(monkeypatch):
         )
     )
     assert result["url"] == "https://cdn.example.com/out.mp4"
-    post_method, post_url, _, post_payload = RecordingAsyncClient.requests[0]
+    post_method, post_url, _, request = RecordingAsyncClient.requests[0]
+    post_payload = request["json"]
     get_method, get_url, _, _ = RecordingAsyncClient.requests[1]
     assert post_method == "POST"
     assert post_url == "https://api.x.ai/v1/videos/generations"
@@ -475,8 +488,89 @@ def test_generate_video_uses_edits_endpoint_for_existing_video(monkeypatch):
         )
     )
     assert result["url"] == "https://cdn.example.com/edited.mp4"
-    method, url, _, payload = RecordingAsyncClient.requests[0]
+    method, url, _, request = RecordingAsyncClient.requests[0]
+    payload = request["json"]
     assert method == "POST"
     assert url == "https://api.x.ai/v1/videos/generations"
     assert payload["video_url"] == "https://example.com/input.mp4"
     assert "duration" not in payload
+
+
+def test_generate_video_uses_openai_sora_multipart(monkeypatch):
+    RecordingAsyncClient.requests = []
+    RecordingAsyncClient.responses = [
+        FakeResponse({"id": "vid_openai", "status": "queued"}),
+        FakeResponse({"id": "vid_openai", "status": "completed"}),
+        FakeResponse(content=b"video-bytes"),
+    ]
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+
+    async def _noop_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("agent_smithers.llm_client.asyncio.sleep", _noop_sleep)
+    client = LLMClient(_cfg("gpt-5-mini"))
+    result = asyncio.run(
+        client.generate_video(
+            prompt="camera orbit around the statue",
+            model="gpt-5-mini",
+            image_url=_png_data_uri(512, 512),
+            seconds=8,
+            size="1280x720",
+        )
+    )
+    assert result["id"] == "vid_openai"
+    post_method, post_url, post_headers, post_request = RecordingAsyncClient.requests[0]
+    get_method, get_url, _, _ = RecordingAsyncClient.requests[1]
+    assert post_method == "POST"
+    assert post_url == "https://api.openai.com/v1/videos"
+    assert "Content-Type" not in post_headers
+    multipart = post_request["files"]
+    assert ("model", (None, "sora-2", None)) in multipart
+    assert ("prompt", (None, "camera orbit around the statue", None)) in multipart
+    assert ("seconds", (None, "8", None)) in multipart
+    assert ("size", (None, "1280x720", None)) in multipart
+    file_part = next(item for item in multipart if item[0] == "input_reference")
+    assert file_part[1][0].startswith("input_reference")
+    assert file_part[1][2] == "image/png"
+    prepared_image = Image.open(BytesIO(file_part[1][1]))
+    assert prepared_image.size == (1280, 720)
+    assert get_method == "GET"
+    assert get_url == "https://api.openai.com/v1/videos/vid_openai"
+
+
+def test_generate_video_infers_openai_sora_size_from_input_image(monkeypatch):
+    RecordingAsyncClient.requests = []
+    RecordingAsyncClient.responses = [
+        FakeResponse({"id": "vid_openai", "status": "completed"}),
+    ]
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+    client = LLMClient(_cfg("gpt-5-mini"))
+    result = asyncio.run(
+        client.generate_video(
+            prompt="portrait fly-through",
+            model="gpt-5-mini",
+            image_url=_png_data_uri(720, 1280),
+            seconds=4,
+        )
+    )
+    assert result["id"] == "vid_openai"
+    method, url, headers, request = RecordingAsyncClient.requests[0]
+    assert method == "POST"
+    assert url == "https://api.openai.com/v1/videos"
+    assert "Content-Type" not in headers
+    multipart = request["files"]
+    assert ("size", (None, "720x1280", None)) in multipart
+
+
+def test_download_video_content_uses_openai_content_endpoint(monkeypatch):
+    RecordingAsyncClient.requests = []
+    RecordingAsyncClient.responses = [FakeResponse(content=b"video-bytes")]
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+    client = LLMClient(_cfg("gpt-5-mini"))
+    payload = asyncio.run(client.download_video_content("vid_openai", provider="openai"))
+    assert payload == b"video-bytes"
+    method, url, headers, _ = RecordingAsyncClient.requests[0]
+    assert method == "GET"
+    assert url == "https://api.openai.com/v1/videos/vid_openai/content"
+    assert headers["Authorization"] == "Bearer O"

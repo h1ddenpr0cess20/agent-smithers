@@ -43,9 +43,9 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
 - `TOOLS_CODE_INTERPRETER`
   `true` or `false`.
 - `TOOLS_IMAGE_GENERATION`
-  `true` or `false`. Used by OpenAI hosted image generation and xAI Grok Imagine image tools.
+  `true` or `false`. Used by OpenAI hosted image generation and Grok Imagine local image tools when `XAI_API_KEY` is configured.
 - `TOOLS_VIDEO_GENERATION`
-  `true` or `false`. Used by xAI Grok Imagine video generation and editing tools.
+  `true` or `false`. Used by the local `generate_video` tool for OpenAI Sora and xAI Grok Imagine when the corresponding API keys are configured.
 - `MCP_SERVERS`
   JSON object defining remote MCP servers.
 - `LLM_TIMEOUT`
@@ -101,5 +101,5 @@ MATRIX_E2E=true
 - `OPENAI_MODELS` or `XAI_MODELS` is still useful as fallback even when `SERVER_MODELS=true`.
 - `TOOLS_WEB_SEARCH_COUNTRY` is currently applied only to OpenAI `web_search`, because xAI's provider docs do not document a country filter for `web_search` or `x_search`.
 - `TOOLS_WEB_SEARCH_COUNTRY` is sent as a structured OpenAI `web_search.user_location.country` value. For xAI search tools, which do not currently document a country parameter, the bot adds a search-policy instruction so `x_search` and `web_search` still bias toward US sources.
-- `TOOLS_VIDEO_GENERATION` currently applies only when the active model is from xAI and the model supports local xAI function tools.
+- `TOOLS_VIDEO_GENERATION` applies across OpenAI and xAI chat models; the tool backend is selected automatically or via the tool's `backend` argument.
 - Keep `.env` out of version control.

@@ -17,6 +17,7 @@ XAI_IMAGE_ASPECT_RATIOS = [
 ]
 XAI_VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"]
 XAI_VIDEO_RESOLUTIONS = ["480p", "720p"]
+OPENAI_SORA_SIZES = ["720x1280", "1280x720", "1024x1792", "1792x1024"]
 
 
 def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str, Any]]], set[str]]:
@@ -65,18 +66,13 @@ def tool_supported_for_model(provider: str, model: str, tool: Dict[str, Any]) ->
     if tool_type in XAI_HOSTED_TOOL_TYPES:
         return xai_model_supports_hosted_tools(model)
     if tool_type == "function":
-        return xai_model_supports_function_tools(model)
+        return True
     return True
 
 
 def xai_model_supports_hosted_tools(model: str) -> bool:
     lowered = str(model or "").strip().lower()
     return lowered.startswith("grok-4")
-
-
-def xai_model_supports_function_tools(model: str) -> bool:
-    lowered = str(model or "").strip().lower()
-    return lowered.startswith(("grok-4", "grok-3", "grok-code-fast-1"))
 
 
 async def refresh_models(ctx: "AppContext") -> None:
@@ -114,14 +110,19 @@ def build_tools(ctx: "AppContext", provider: str) -> List[Dict[str, Any]]:
         defaults["video_generation"] = True
     elif provider == "openai":
         defaults["image_generation"] = True
+        defaults["video_generation"] = True
     for tool_name, default_value in defaults.items():
-        if provider == "xai" and tool_name in {"image_generation", "video_generation"}:
+        if provider in {"xai", "openai"} and tool_name == "video_generation":
+            continue
+        if provider == "xai" and tool_name == "image_generation":
             continue
         tool = build_hosted_tool(ctx, provider, tool_name, hosted_config.get(tool_name, default_value))
         if tool:
             tools.append(tool)
-    if provider == "xai":
-        tools.extend(build_xai_media_tools(hosted_config))
+    if provider in {"openai", "xai"}:
+        tools.extend(build_local_media_tools(ctx, hosted_config))
+    if provider == "openai":
+        pass
     for name, spec in (ctx.cfg.llm.mcp_servers or {}).items():
         tool = build_mcp_tool(ctx, provider, name, spec)
         if tool:
@@ -129,9 +130,11 @@ def build_tools(ctx: "AppContext", provider: str) -> List[Dict[str, Any]]:
     return tools
 
 
-def build_xai_media_tools(hosted_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+def build_local_media_tools(ctx: "AppContext", hosted_config: Dict[str, Any]) -> List[Dict[str, Any]]:
     tools: List[Dict[str, Any]] = []
-    if hosted_config.get("image_generation", True) not in (None, False):
+    xai_available = bool(ctx.cfg.llm.api_keys.get("xai"))
+    openai_available = bool(ctx.cfg.llm.api_keys.get("openai"))
+    if xai_available and hosted_config.get("image_generation", True) not in (None, False):
         tools.extend(
             [
                 {
@@ -212,17 +215,35 @@ def build_xai_media_tools(hosted_config: Dict[str, Any]) -> List[Dict[str, Any]]
             ]
         )
     if hosted_config.get("video_generation", True) not in (None, False):
+        backend_enum = []
+        if xai_available:
+            backend_enum.append("grok")
+        if openai_available:
+            backend_enum.append("sora")
+        if backend_enum:
+            backend_description = "Video backend to use."
+            if len(backend_enum) > 1:
+                backend_description += " Use 'grok' for Grok Imagine or 'sora' for OpenAI Sora."
+            else:
+                backend_description += f" Only '{backend_enum[0]}' is available in this configuration."
+        else:
+            backend_description = "Video backend to use."
         tools.append(
             {
                 "type": "function",
                 "name": "generate_video",
-                "description": "Generate a new video, animate an image, or edit an existing video using Grok Imagine.",
+                "description": "Generate a new video, animate an image, or edit an existing video using Grok Imagine or OpenAI Sora.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "prompt": {
                             "type": "string",
                             "description": "A detailed description of the video to create or the edit to apply.",
+                        },
+                        "backend": {
+                            "type": "string",
+                            "description": backend_description,
+                            "enum": backend_enum or ["grok", "sora"],
                         },
                         "image_url": {
                             "type": "string",
@@ -231,6 +252,16 @@ def build_xai_media_tools(hosted_config: Dict[str, Any]) -> List[Dict[str, Any]]
                         "video_url": {
                             "type": "string",
                             "description": "Optional public URL for editing an existing video.",
+                        },
+                        "seconds": {
+                            "type": "integer",
+                            "description": "OpenAI Sora clip duration in seconds.",
+                            "enum": [4, 8, 12],
+                        },
+                        "size": {
+                            "type": "string",
+                            "description": "OpenAI Sora output size in width x height format.",
+                            "enum": OPENAI_SORA_SIZES,
                         },
                         "duration": {
                             "type": "integer",
@@ -266,7 +297,7 @@ def build_hosted_tool(
     if spec in (None, False):
         return None
     if tool_name == "image_generation" and provider == "xai":
-        return build_xai_media_tools({"image_generation": spec, "video_generation": False})[0]
+        return None
     tool: Dict[str, Any] = {"type": tool_name}
     if isinstance(spec, dict):
         tool.update(spec)

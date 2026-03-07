@@ -420,6 +420,7 @@ async def _execute_generate_image_call(
     img_response = await ctx.llm.generate_image(
         prompt=prompt,
         model=model,
+        provider_override="xai",
         n=int(args["n"]) if args.get("n") else 1,
         aspect_ratio=str(args["aspect_ratio"]) if args.get("aspect_ratio") else None,
         resolution=str(args["resolution"]) if args.get("resolution") else None,
@@ -448,6 +449,7 @@ async def _execute_edit_image_call(
         prompt=prompt,
         image_urls=image_urls,
         model=model,
+        provider_override="xai",
         n=int(args["n"]) if args.get("n") else 1,
         aspect_ratio=str(args["aspect_ratio"]) if args.get("aspect_ratio") else None,
         resolution=str(args["resolution"]) if args.get("resolution") else None,
@@ -465,35 +467,60 @@ async def _execute_generate_video_call(
     prompt: str,
     args: Dict[str, Any],
 ) -> str:
+    active_provider = ctx._provider_for_model(model)
+    backend = str(args.get("backend") or "").strip().lower() or None
+    provider = active_provider
+    if backend in {"grok", "xai"}:
+        provider = "xai"
+    elif backend in {"sora", "openai"}:
+        provider = "openai"
     image_url = str(args.get("image_url") or "").strip() or None
     video_url = str(args.get("video_url") or "").strip() or None
     if not image_url and not video_url:
         image_url = ctx._latest_generated_media(room_id, thread_user, kind="image")
-        if not image_url:
+        if not image_url and provider != "openai":
             video_url = ctx._latest_generated_media(room_id, thread_user, kind="video")
     if image_url and video_url:
         raise ValueError("Only one of image_url or video_url may be provided")
     video_response = await ctx.llm.generate_video(
         prompt=prompt,
         model=model,
+        backend=backend,
         image_url=image_url,
         video_url=video_url,
         duration=int(args["duration"]) if args.get("duration") is not None else None,
         aspect_ratio=str(args["aspect_ratio"]) if args.get("aspect_ratio") else None,
         resolution=str(args["resolution"]) if args.get("resolution") else None,
+        seconds=int(args["seconds"]) if args.get("seconds") is not None else None,
+        size=str(args["size"]) if args.get("size") else None,
     )
-    final_url = _extract_video_url(video_response)
-    if not final_url:
-        raise ValueError("Video response did not include a downloadable URL")
-    ctx._remember_generated_media(
-        room_id,
-        thread_user,
-        kind="video",
-        reference=final_url,
-        mime_type="video/mp4",
-    )
-    video_bytes = await ctx.llm.download_url(final_url, provider=ctx._provider_for_model(model))
-    path = ctx._write_artifact(video_bytes, _guess_media_suffix(final_url, ".mp4"))
+    suffix = ".mp4"
+    if provider == "openai":
+        video_id = str(video_response.get("id") or "").strip()
+        if not video_id:
+            raise ValueError("Video response did not include a downloadable id")
+        ctx._remember_generated_media(
+            room_id,
+            thread_user,
+            kind="video",
+            reference=video_id,
+            mime_type="video/mp4",
+        )
+        video_bytes = await ctx.llm.download_video_content(video_id, provider=provider)
+    else:
+        final_url = _extract_video_url(video_response)
+        if not final_url:
+            raise ValueError("Video response did not include a downloadable URL")
+        suffix = _guess_media_suffix(final_url, ".mp4")
+        ctx._remember_generated_media(
+            room_id,
+            thread_user,
+            kind="video",
+            reference=final_url,
+            mime_type="video/mp4",
+        )
+        video_bytes = await ctx.llm.download_url(final_url, provider=provider)
+    path = ctx._write_artifact(video_bytes, suffix)
     if room_id:
         await ctx.matrix.send_video(room_id=room_id, path=path, filename=None, log=ctx.log)
         return "Video generated and sent."
@@ -513,7 +540,7 @@ async def generate_reply(
     provider = ctx._provider_for_model(use_model)
     active_tools = ctx._tools_for_model(use_model)
     prepared_messages = list(messages)
-    media_note = ctx._thread_media_prompt_note(room_id, thread_user)
+    media_note = ctx._thread_media_prompt_note(room_id, thread_user, provider=provider)
     if media_note:
         if prepared_messages and str(prepared_messages[0].get("role") or "") == "system":
             prepared_messages[0] = dict(prepared_messages[0])

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import mimetypes
+from io import BytesIO
 import re
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import urlparse
 
 import httpx
+from PIL import Image, ImageOps
 
 from .config import AppConfig, provider_for_model
 
@@ -14,6 +19,8 @@ class LLMClient:
     """Thin Responses API client for OpenAI-compatible providers."""
 
     LMSTUDIO_FALLBACK_USER_PROMPT = "Please continue the conversation."
+    OPENAI_VIDEO_MODEL = "sora-2"
+    OPENAI_SORA_SIZES = ("720x1280", "1280x720", "1024x1792", "1792x1024")
     XAI_IMAGE_MODEL = "grok-imagine-image"
     XAI_VIDEO_MODEL = "grok-imagine-video"
     VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -107,6 +114,74 @@ class LLMClient:
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         return headers
+
+    def _multipart_headers(self, provider: str) -> Dict[str, str]:
+        headers = self._headers(provider)
+        headers.pop("Content-Type", None)
+        return headers
+
+    @staticmethod
+    def _decode_data_uri(reference: str) -> Tuple[bytes, str]:
+        header, encoded = reference.split(",", 1)
+        mime_type = header.split(";", 1)[0].split(":", 1)[1] if ":" in header else "application/octet-stream"
+        return base64.b64decode(encoded), mime_type or "application/octet-stream"
+
+    async def _load_media_reference(
+        self,
+        reference: str,
+        *,
+        provider: Optional[str],
+        default_name: str,
+    ) -> Tuple[str, bytes, str]:
+        if reference.startswith("data:"):
+            payload, mime_type = self._decode_data_uri(reference)
+            extension = mimetypes.guess_extension(mime_type) or ""
+            filename = f"{default_name}{extension}" if extension else default_name
+            return filename, payload, mime_type
+        payload = await self.download_url(reference, provider=provider)
+        path = urlparse(reference).path
+        filename = path.rsplit("/", 1)[-1] or default_name
+        mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        return filename, payload, mime_type
+
+    @classmethod
+    def _parse_size(cls, size: str) -> Tuple[int, int]:
+        width_str, height_str = size.split("x", 1)
+        return int(width_str), int(height_str)
+
+    @classmethod
+    def _choose_openai_sora_size(cls, width: int, height: int, requested_size: Optional[str]) -> str:
+        if requested_size:
+            return requested_size
+        source_ratio = width / height if height else 1.0
+        candidates = []
+        for candidate in cls.OPENAI_SORA_SIZES:
+            candidate_width, candidate_height = cls._parse_size(candidate)
+            candidate_ratio = candidate_width / candidate_height if candidate_height else 1.0
+            candidates.append((abs(candidate_ratio - source_ratio), candidate))
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
+
+    async def _prepare_openai_video_reference(
+        self,
+        reference: str,
+        *,
+        size: Optional[str],
+    ) -> Tuple[str, str, bytes, str]:
+        filename, payload, _mime_type = await self._load_media_reference(
+            reference,
+            provider=None,
+            default_name="input_reference",
+        )
+        with Image.open(BytesIO(payload)) as image:
+            source = image.convert("RGBA") if image.mode in {"RGBA", "LA", "P"} else image.convert("RGB")
+            selected_size = self._choose_openai_sora_size(source.width, source.height, size)
+            target_width, target_height = self._parse_size(selected_size)
+            resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+            prepared = ImageOps.fit(source, (target_width, target_height), method=resampling)
+            output = BytesIO()
+            prepared.save(output, format="PNG")
+        return selected_size, f"{filename.rsplit('.', 1)[0]}.png", output.getvalue(), "image/png"
 
     @staticmethod
     def _is_chat_model(provider: str, model_id: str) -> bool:
@@ -253,12 +328,13 @@ class LLMClient:
         *,
         prompt: str,
         model: str,
+        provider_override: Optional[str] = None,
         n: int = 1,
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Generate an image via xAI POST /v1/images/generations."""
-        provider = self._provider_for_model(model)
+        provider = provider_override or self._provider_for_model(model)
         payload: Dict[str, Any] = {
             "model": self.XAI_IMAGE_MODEL,
             "prompt": prompt,
@@ -284,12 +360,13 @@ class LLMClient:
         prompt: str,
         image_urls: List[str],
         model: str,
+        provider_override: Optional[str] = None,
         n: int = 1,
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Edit one or more images via xAI POST /v1/images/edits."""
-        provider = self._provider_for_model(model)
+        provider = provider_override or self._provider_for_model(model)
         cleaned_urls = [url.strip() for url in image_urls if str(url).strip()]
         if not cleaned_urls:
             raise ValueError("At least one image URL is required")
@@ -345,14 +422,59 @@ class LLMClient:
         *,
         prompt: str,
         model: str,
+        backend: Optional[str] = None,
         image_url: Optional[str] = None,
         video_url: Optional[str] = None,
         duration: Optional[int] = None,
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
+        seconds: Optional[int] = None,
+        size: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Generate or edit a video via xAI's asynchronous video API."""
+        """Generate or edit a video via xAI or OpenAI Sora."""
         provider = self._provider_for_model(model)
+        backend_name = str(backend or "").strip().lower()
+        if backend_name in {"grok", "xai"}:
+            provider = "xai"
+        elif backend_name in {"sora", "openai"}:
+            provider = "openai"
+        if provider == "openai":
+            if video_url:
+                raise ValueError("OpenAI Sora remix is not implemented in this client")
+            multipart_fields: List[Tuple[str, Tuple[Optional[str], Any, Optional[str]]]] = [
+                ("model", (None, self.OPENAI_VIDEO_MODEL, None)),
+                ("prompt", (None, prompt, None)),
+            ]
+            if seconds is not None:
+                multipart_fields.append(("seconds", (None, str(seconds), None)))
+            if image_url:
+                selected_size, filename, payload, mime_type = await self._prepare_openai_video_reference(
+                    image_url,
+                    size=size,
+                )
+                size = selected_size
+                multipart_fields.append(("input_reference", (filename, payload, mime_type)))
+            if size:
+                multipart_fields.append(("size", (None, size, None)))
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
+                response = await client.post(
+                    f"{self._base_url(provider)}/videos",
+                    headers=self._multipart_headers(provider),
+                    files=multipart_fields,
+                )
+                response.raise_for_status()
+                created = response.json()
+                status = str(created.get("status") or "").strip().lower()
+                if status in {"done", "completed", "succeeded", "success"}:
+                    return created
+                request_id = str(created.get("id") or "").strip()
+                if not request_id:
+                    raise RuntimeError("OpenAI video response did not include an id")
+                return await self._poll_video_generation(
+                    client=client,
+                    provider=provider,
+                    request_id=request_id,
+                )
         payload: Dict[str, Any] = {
             "model": self.XAI_VIDEO_MODEL,
             "prompt": prompt,
@@ -387,6 +509,17 @@ class LLMClient:
                 provider=provider,
                 request_id=request_id,
             )
+
+    async def download_video_content(self, video_id: str, *, provider: str) -> bytes:
+        """Download a generated video from a provider-specific content endpoint."""
+        if provider == "openai":
+            url = f"{self._base_url(provider)}/videos/{video_id}/content"
+        else:
+            url = f"{self._base_url(provider)}/videos/{video_id}/content"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
+            response = await client.get(url, headers=self._headers(provider))
+            response.raise_for_status()
+            return response.content
 
     async def download_file(
         self,

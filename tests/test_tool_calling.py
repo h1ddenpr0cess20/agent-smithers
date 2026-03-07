@@ -254,6 +254,11 @@ def test_dual_provider_tool_sets_follow_selected_model():
         openai_tools = ctx._tools_for_model("gpt-5-mini")
         xai_tools = ctx._tools_for_model("grok-4")
         assert {"type": "image_generation"} in openai_tools
+        assert {tool["name"] for tool in openai_tools if tool["type"] == "function"} == {
+            "generate_image",
+            "edit_image",
+            "generate_video",
+        }
         assert {"type": "x_search"} not in openai_tools
         assert {"type": "x_search"} in xai_tools
         assert {"type": "image_generation"} not in xai_tools
@@ -1058,6 +1063,95 @@ def test_handle_generate_image_calls_supports_generate_video():
             }
         ]
         assert len(ctx.matrix.sent_videos) == 1
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_handle_generate_image_calls_supports_openai_generate_video():
+    ctx = _ctx()
+    try:
+        class FakeMediaLLM:
+            async def generate_video(self, **payload):
+                assert payload["prompt"] == "animate this logo"
+                assert payload["image_url"] == "data:image/png;base64,c291cmNl"
+                assert payload["seconds"] == 8
+                assert payload["size"] == "1280x720"
+                assert payload["backend"] is None
+                return {"id": "vid_openai"}
+
+            async def download_video_content(self, video_id, *, provider):
+                assert video_id == "vid_openai"
+                assert provider == "openai"
+                return b"openai-video"
+
+        ctx.llm = FakeMediaLLM()
+        ctx._remember_generated_media(
+            "!r",
+            "@u",
+            kind="image",
+            reference="data:image/png;base64,c291cmNl",
+            mime_type="image/png",
+        )
+        response = {
+            "output": [
+                {
+                    "type": "function_call",
+                    "name": "generate_video",
+                    "call_id": "call_openai_video",
+                    "arguments": '{"prompt":"animate this logo","seconds":8,"size":"1280x720"}',
+                }
+            ]
+        }
+        output_items = asyncio.run(
+            ctx._handle_generate_image_calls(response, model="gpt-5-mini", room_id="!r", thread_user="@u")
+        )
+        assert output_items == [
+            {
+                "type": "function_call_output",
+                "call_id": "call_openai_video",
+                "output": "Video generated and sent.",
+            }
+        ]
+        assert len(ctx.matrix.sent_videos) == 1
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_handle_generate_image_calls_supports_sora_backend_from_xai_model():
+    ctx = _ctx()
+    try:
+        class FakeMediaLLM:
+            async def generate_video(self, **payload):
+                assert payload["backend"] == "sora"
+                assert payload["model"] == "grok-4"
+                return {"id": "vid_cross_provider"}
+
+            async def download_video_content(self, video_id, *, provider):
+                assert video_id == "vid_cross_provider"
+                assert provider == "openai"
+                return b"openai-video"
+
+        ctx.llm = FakeMediaLLM()
+        response = {
+            "output": [
+                {
+                    "type": "function_call",
+                    "name": "generate_video",
+                    "call_id": "call_sora_backend",
+                    "arguments": '{"prompt":"turn this into a product video","backend":"sora","image_url":"data:image/png;base64,c291cmNl","seconds":4,"size":"1280x720"}',
+                }
+            ]
+        }
+        output_items = asyncio.run(
+            ctx._handle_generate_image_calls(response, model="grok-4", room_id="!r", thread_user="@u")
+        )
+        assert output_items == [
+            {
+                "type": "function_call_output",
+                "call_id": "call_sora_backend",
+                "output": "Video generated and sent.",
+            }
+        ]
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 

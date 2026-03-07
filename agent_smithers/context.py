@@ -232,7 +232,13 @@ class AppContext:
             .get("reference")
         )
 
-    def _thread_media_prompt_note(self, room_id: Optional[str], user_id: Optional[str]) -> Optional[str]:
+    def _thread_media_prompt_note(
+        self,
+        room_id: Optional[str],
+        user_id: Optional[str],
+        *,
+        provider: Optional[str] = None,
+    ) -> Optional[str]:
         image_ref = self._latest_generated_media(room_id, user_id, kind="image")
         video_ref = self._latest_generated_media(room_id, user_id, kind="video")
         notes: List[str] = []
@@ -241,7 +247,7 @@ class AppContext:
                 "If the user asks to edit, vary, or animate the most recently generated image in this thread, "
                 "call the relevant tool without requiring an explicit image URL; the runtime will supply it."
             )
-        if video_ref:
+        if video_ref and provider != "openai":
             notes.append(
                 "If the user asks to edit the most recently generated video in this thread, "
                 "call the video tool without requiring an explicit video URL; the runtime will supply it."
