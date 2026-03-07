@@ -33,7 +33,7 @@ Thanks for your interest. Small, focused contributions that fix real bugs or imp
 
 - Python: prefer clear names, type hints where they add value, and minimal dependencies.
 - Keep changes small and focused; avoid unrelated edits.
-- CLI name in docs/examples: `infinigpt-matrix`.
+- CLI name in docs/examples: `agent-smithers`.
 - Docs: keep Markdown tidy.
 - Do not commit secrets or credentials. Configuration examples belong in `config*.json` templates.
 

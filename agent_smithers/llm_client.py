@@ -11,6 +11,8 @@ from .config import AppConfig, provider_for_model
 class LLMClient:
     """Thin Responses API client for OpenAI-compatible providers."""
 
+    LMSTUDIO_FALLBACK_USER_PROMPT = "Please continue the conversation."
+
     def __init__(self, cfg: AppConfig) -> None:
         self.cfg = cfg
  
@@ -35,6 +37,40 @@ class LLMClient:
     @staticmethod
     def _supports_instructions(provider: str) -> bool:
         return provider != "xai"
+
+    @staticmethod
+    def _has_user_message(items: Iterable[Dict[str, Any]]) -> bool:
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("role") or "").strip() == "user" and str(item.get("content") or "").strip():
+                return True
+        return False
+
+    @classmethod
+    def _ensure_lmstudio_user_message(
+        cls,
+        items: Iterable[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        final_items = [dict(item) for item in items if isinstance(item, dict)]
+        if cls._has_user_message(final_items):
+            return final_items
+        final_items.append({"role": "user", "content": cls.LMSTUDIO_FALLBACK_USER_PROMPT})
+        return final_items
+
+    @staticmethod
+    def _merge_include_items(existing: Any, additions: Iterable[str]) -> List[str]:
+        merged: List[str] = []
+        seen = set()
+        for value in existing if isinstance(existing, list) else []:
+            if isinstance(value, str) and value and value not in seen:
+                merged.append(value)
+                seen.add(value)
+        for value in additions:
+            if value and value not in seen:
+                merged.append(value)
+                seen.add(value)
+        return merged
 
     def _headers(self, provider: str) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -131,6 +167,8 @@ class LLMClient:
         if supports_instructions and instructions and not previous_response_id:
             payload["instructions"] = instructions
         final_input = input_items if input_items is not None else derived_input
+        if provider == "lmstudio" and messages is not None and input_items is None:
+            final_input = self._ensure_lmstudio_user_message(final_input)
         if final_input:
             payload["input"] = final_input
         if tools:
@@ -140,6 +178,14 @@ class LLMClient:
             for key, value in options.items():
                 if value is not None:
                     payload[key] = value
+        if provider == "xai" and any(
+            isinstance(tool, dict) and tool.get("type") in {"web_search", "x_search"}
+            for tool in (tools or [])
+        ):
+            payload["include"] = self._merge_include_items(
+                payload.get("include"),
+                ["no_inline_citations"],
+            )
         return payload
 
     async def create_response(

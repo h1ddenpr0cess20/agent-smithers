@@ -1,4 +1,4 @@
-from infinigpt.handlers.router import Router
+from agent_smithers.handlers.router import Router
 
 
 def test_router_dispatch_ai():

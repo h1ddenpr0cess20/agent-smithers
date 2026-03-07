@@ -12,15 +12,20 @@ from .config import load_config
 from .app import run as run_app
 
 
+def _env_with_legacy(primary: str, legacy: str, default: str) -> str:
+    """Read a rebranded env var with fallback to the legacy name."""
+    return os.getenv(primary, os.getenv(legacy, default))
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Create the command-line argument parser for the bot.
 
     Returns:
         Configured ``argparse.ArgumentParser`` instance.
     """
-    parser = argparse.ArgumentParser(prog="infinigpt-matrix", description="InfiniGPT Matrix bot (modular)", add_help=True)
-    parser.add_argument("-L", "--log-level", default=os.getenv("INFINIGPT_LOG_LEVEL", "INFO"), choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
-    parser.add_argument("-e", "--env-file", default=os.getenv("INFINIGPT_ENV_FILE", ".env"), help="Path to env file (default: ./.env)")
+    parser = argparse.ArgumentParser(prog="agent-smithers", description="Agent Smithers Matrix bot (modular)", add_help=True)
+    parser.add_argument("-L", "--log-level", default=_env_with_legacy("AGENT_SMITHERS_LOG_LEVEL", "INFINIGPT_LOG_LEVEL", "INFO"), choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    parser.add_argument("-e", "--env-file", default=_env_with_legacy("AGENT_SMITHERS_ENV_FILE", "INFINIGPT_ENV_FILE", ".env"), help="Path to env file (default: ./.env)")
     parser.add_argument("-E", "--e2e", action="store_true", help="Enable end-to-end encryption (overrides config)")
     parser.add_argument("-N", "--no-e2e", action="store_true", help="Disable end-to-end encryption (overrides config)")
     parser.add_argument("-m", "--model", help="Override default model")
@@ -44,7 +49,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     setup_logging(args.log_level)
-    os.environ["INFINIGPT_ENV_FILE"] = args.env_file or ".env"
+    env_file = args.env_file or ".env"
+    os.environ["AGENT_SMITHERS_ENV_FILE"] = env_file
+    os.environ["INFINIGPT_ENV_FILE"] = env_file
     cfg = load_config(args.env_file)
     if args.model:
         try:

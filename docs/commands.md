@@ -1,6 +1,6 @@
 # Commands
 
-Users can interact with InfiniGPT using dot-commands or by mentioning the bot name followed by a colon.
+Users can interact with Agent Smithers using dot-commands or by mentioning the bot name followed by a colon.
 
 ## User Commands
 

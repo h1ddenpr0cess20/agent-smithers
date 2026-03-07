@@ -1,6 +1,6 @@
 # Tools and MCP
 
-InfiniGPT uses provider-hosted tools through the Responses API. It does not execute the old local custom tools or the previous `fastmcp` client path.
+Agent Smithers uses provider-hosted tools through the Responses API. It does not execute the old local custom tools or the previous `fastmcp` client path.
 
 ## Hosted Tools
 

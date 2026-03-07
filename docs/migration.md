@@ -16,5 +16,5 @@ The project still looks like the upstream Matrix bot, but the runtime behavior c
 ## Start Command
 
 ```bash
-infinigpt-matrix --env-file .env
+agent-smithers --env-file .env
 ```

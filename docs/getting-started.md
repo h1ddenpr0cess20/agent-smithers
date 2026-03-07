@@ -49,13 +49,13 @@ Optional:
 Installed command:
 
 ```bash
-infinigpt-matrix --env-file .env
+agent-smithers --env-file .env
 ```
 
 As a module:
 
 ```bash
-python -m infinigpt --env-file .env
+python -m agent_smithers --env-file .env
 ```
 
 ## First Checks

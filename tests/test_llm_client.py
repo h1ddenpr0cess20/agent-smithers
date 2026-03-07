@@ -1,5 +1,5 @@
-from infinigpt.config import AppConfig, LLMConfig, MatrixConfig
-from infinigpt.llm_client import LLMClient
+from agent_smithers.config import AppConfig, LLMConfig, MatrixConfig
+from agent_smithers.llm_client import LLMClient
 
 
 def _cfg(default_model="gpt-5-mini"):
@@ -89,6 +89,20 @@ def test_build_request_payload_keeps_system_messages_in_input_for_xai():
     ]
     assert payload["tools"] == [{"type": "x_search"}]
     assert payload["tool_choice"] == "auto"
+    assert payload["include"] == ["no_inline_citations"]
+
+
+def test_build_request_payload_merges_xai_include_items():
+    client = LLMClient(_cfg("grok-4"))
+    payload = client.build_request_payload(
+        model="grok-4",
+        messages=[
+            {"role": "user", "content": "hello"},
+        ],
+        tools=[{"type": "web_search"}],
+        options={"include": ["reasoning.encrypted_content"]},
+    )
+    assert payload["include"] == ["reasoning.encrypted_content", "no_inline_citations"]
 
 
 def test_is_chat_model_filters_xai_non_chat_variants():
@@ -115,3 +129,53 @@ def test_lmstudio_uses_configured_base_url_and_no_auth_header():
     assert client._headers("lmstudio") == {"Content-Type": "application/json"}
     assert client._is_chat_model("lmstudio", "local-model") is True
     assert client._is_chat_model("lmstudio", "text-embedding-nomic-embed-text-v1.5") is False
+
+
+def test_build_request_payload_adds_lmstudio_fallback_user_turn_when_missing():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"lmstudio": ["local-model"]},
+            api_keys={"lmstudio": ""},
+            base_urls={"lmstudio": "http://127.0.0.1:1234/v1"},
+            default_model="local-model",
+            personality="p",
+            prompt=["you are ", "."],
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admin="a"),
+    )
+    client = LLMClient(cfg)
+    payload = client.build_request_payload(
+        model="local-model",
+        messages=[
+            {"role": "system", "content": "be concise"},
+            {"role": "assistant", "content": "Earlier reply"},
+        ],
+    )
+    assert payload["instructions"] == "be concise"
+    assert payload["input"] == [
+        {"role": "assistant", "content": "Earlier reply"},
+        {"role": "user", "content": LLMClient.LMSTUDIO_FALLBACK_USER_PROMPT},
+    ]
+
+
+def test_build_request_payload_keeps_existing_lmstudio_user_turn():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"lmstudio": ["local-model"]},
+            api_keys={"lmstudio": ""},
+            base_urls={"lmstudio": "http://127.0.0.1:1234/v1"},
+            default_model="local-model",
+            personality="p",
+            prompt=["you are ", "."],
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admin="a"),
+    )
+    client = LLMClient(cfg)
+    payload = client.build_request_payload(
+        model="local-model",
+        messages=[
+            {"role": "system", "content": "be concise"},
+            {"role": "user", "content": "hello"},
+        ],
+    )
+    assert payload["input"] == [{"role": "user", "content": "hello"}]

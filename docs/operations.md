@@ -3,7 +3,7 @@
 ## Start
 
 ```bash
-infinigpt-matrix --env-file .env
+agent-smithers --env-file .env
 ```
 
 ## Recommended Persistence
@@ -17,7 +17,7 @@ infinigpt-matrix --env-file .env
 Use:
 
 ```bash
-INFINIGPT_LOG_LEVEL=DEBUG infinigpt-matrix --env-file .env
+AGENT_SMITHERS_LOG_LEVEL=DEBUG agent-smithers --env-file .env
 ```
 
 ## Common Issues

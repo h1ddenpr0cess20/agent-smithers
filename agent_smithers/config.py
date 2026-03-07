@@ -202,7 +202,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         default_model=default_model,
         personality=os.getenv(
             "BOT_PERSONALITY",
-            "an AI that can assume any personality, named InfiniGPT",
+            "an AI that can assume any personality, named Agent Smithers",
         ),
         prompt=prompt,
         options=_parse_json(os.getenv("RESPONSES_OPTIONS"), {}),

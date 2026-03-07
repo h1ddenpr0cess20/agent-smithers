@@ -52,7 +52,7 @@ class MatrixClientWrapper:
 
     async def login(self) -> Any:
         """Log in to Matrix and return the server response object."""
-        return await self.client.login(self.password, device_name=self.client.device_id or "infinigpt")
+        return await self.client.login(self.password, device_name=self.client.device_id or "agent-smithers")
 
     async def ensure_keys(self) -> None:
         """Upload device keys if the client indicates it is necessary."""

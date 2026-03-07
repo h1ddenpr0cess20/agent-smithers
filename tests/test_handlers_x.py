@@ -1,8 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
-from infinigpt.handlers.cmd_x import handle_x
-from infinigpt.history import HistoryStore
+from agent_smithers.handlers.cmd_x import handle_x
+from agent_smithers.history import HistoryStore
 
 
 class FakeMatrix:

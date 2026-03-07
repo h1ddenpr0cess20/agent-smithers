@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from infinigpt.config import load_config, validate_config, AppConfig, LLMConfig, MatrixConfig
+from agent_smithers.config import load_config, validate_config, AppConfig, LLMConfig, MatrixConfig
 
 
 def test_load_config_and_validate(tmp_path: Path):

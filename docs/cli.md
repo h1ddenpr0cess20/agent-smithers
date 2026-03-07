@@ -3,7 +3,7 @@
 The main command is:
 
 ```bash
-infinigpt-matrix --env-file .env
+agent-smithers --env-file .env
 ```
 
 ## Options
@@ -28,8 +28,8 @@ infinigpt-matrix --env-file .env
 ## Examples
 
 ```bash
-infinigpt-matrix --env-file .env
-infinigpt-matrix --env-file .env --model gpt-5-mini
-INFINIGPT_LOG_LEVEL=DEBUG infinigpt-matrix --env-file .env
-python -m infinigpt --env-file .env
+agent-smithers --env-file .env
+agent-smithers --env-file .env --model gpt-5-mini
+AGENT_SMITHERS_LOG_LEVEL=DEBUG agent-smithers --env-file .env
+python -m agent_smithers --env-file .env
 ```

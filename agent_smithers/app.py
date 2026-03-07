@@ -5,6 +5,7 @@ import base64
 import json
 import logging
 import os
+import re
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -29,9 +30,11 @@ from .security import Security
 class AppContext:
     """Application runtime context and service container."""
 
+    INLINE_CITATION_RE = re.compile(r"\s*[【〖][^】〗\n]*?†source[】〗]")
+
     def __init__(self, cfg: AppConfig, executor: Optional[ThreadPoolExecutor] = None) -> None:
         self.cfg = cfg
-        self.executor = executor or ThreadPoolExecutor(max_workers=4, thread_name_prefix="infinigpt")
+        self.executor = executor or ThreadPoolExecutor(max_workers=4, thread_name_prefix="agent-smithers")
         self.logger = logging.getLogger(__name__)
         self.log = self.logger.info
 
@@ -67,7 +70,7 @@ class AppContext:
             self.admins = list(getattr(cfg.matrix, "admins", []))
         except Exception:
             self.admins = []
-        self.bot_id = "InfiniGPT"
+        self.bot_id = "Agent Smithers"
         self.user_models: Dict[str, Dict[str, str]] = {}
 
         self.llm = LLMClient(cfg)
@@ -266,18 +269,39 @@ class AppContext:
     @staticmethod
     def _extract_text(response: Dict[str, Any]) -> str:
         parts: List[str] = []
-        output_text = str(response.get("output_text") or "").strip()
-        if output_text:
-            return output_text
         for item in response.get("output", []) or []:
             if item.get("type") != "message":
                 continue
             for content in item.get("content", []) or []:
                 if content.get("type") == "output_text":
-                    text = str(content.get("text") or "").strip()
+                    text = AppContext._strip_inline_citations(
+                        str(content.get("text") or ""),
+                        annotations=content.get("annotations"),
+                    )
                     if text:
                         parts.append(text)
-        return "\n".join(parts).strip()
+        if parts:
+            return "\n".join(parts).strip()
+        return AppContext._strip_inline_citations(str(response.get("output_text") or ""))
+
+    @staticmethod
+    def _strip_inline_citations(text: str, annotations: Any = None) -> str:
+        cleaned = str(text or "")
+        for annotation in annotations or []:
+            if not isinstance(annotation, dict):
+                continue
+            annotation_type = str(annotation.get("type") or "").lower()
+            if "citation" not in annotation_type:
+                continue
+            annotation_text = str(annotation.get("text") or "")
+            if annotation_text:
+                cleaned = cleaned.replace(annotation_text, "")
+        cleaned = AppContext.INLINE_CITATION_RE.sub("", cleaned)
+        cleaned = re.sub(r"[ \t]+([,.;:!?])", r"\1", cleaned)
+        cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+        cleaned = re.sub(r" *\n *", "\n", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
 
     @staticmethod
     def _walk_image_results(value: Any) -> Iterable[Dict[str, Any]]:
@@ -362,7 +386,7 @@ class AppContext:
     def _write_artifact(self, data: bytes, suffix: str) -> str:
         with tempfile.NamedTemporaryFile(
             mode="wb",
-            prefix="infinigpt-",
+            prefix="agent-smithers-",
             suffix=suffix,
             dir=self.artifact_dir,
             delete=False,

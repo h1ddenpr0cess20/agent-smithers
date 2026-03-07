@@ -1,0 +1,2 @@
+[console_scripts]
+agent-smithers = agent_smithers.cli:main

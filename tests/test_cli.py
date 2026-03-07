@@ -1,4 +1,4 @@
-from infinigpt.cli import build_parser
+from agent_smithers.cli import build_parser
 
 
 def test_cli_overrides():

@@ -1,6 +1,8 @@
-# InfiniGPT Matrix Bot
+# Agent Smithers Matrix Bot
 
-InfiniGPT is a Matrix chatbot built around the Responses API. It supports per-user histories, persona/custom prompts, provider-hosted tools, remote MCP servers, and admin model controls across OpenAI and xAI.
+Agent Smithers is a Matrix chatbot built around the Responses API. It supports per-user histories, persona/custom prompts, provider-hosted tools, remote MCP servers, and admin model controls across OpenAI and xAI.
+
+The name references Agent Smith from *The Matrix* and Smithers, Mr. Burns' assistant from *The Simpsons*.
 
 - Source: this repository
 - License: AGPL-3.0

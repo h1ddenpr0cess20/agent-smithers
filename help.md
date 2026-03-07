@@ -1,4 +1,4 @@
-# InfiniGPT Matrix Bot — Help
+# Agent Smithers Matrix Bot — Help
 
 Use these commands in any room the bot has joined. You can address the bot with dot‑commands or by mentioning the bot name followed by a colon.
 

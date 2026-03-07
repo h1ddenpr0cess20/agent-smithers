@@ -1,4 +1,4 @@
-from infinigpt.history import HistoryStore
+from agent_smithers.history import HistoryStore
 
 
 def test_history_prompt_and_trim():

@@ -1,10 +1,10 @@
 import asyncio
 from types import SimpleNamespace
 
-from infinigpt.handlers.cmd_model import handle_model
-from infinigpt.handlers.cmd_ai import handle_ai
-from infinigpt.handlers.cmd_help import handle_help
-from infinigpt.history import HistoryStore
+from agent_smithers.handlers.cmd_model import handle_model
+from agent_smithers.handlers.cmd_ai import handle_ai
+from agent_smithers.handlers.cmd_help import handle_help
+from agent_smithers.history import HistoryStore
 
 
 class FakeMatrix:

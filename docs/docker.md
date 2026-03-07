@@ -1,6 +1,6 @@
 # Docker
 
-This guide covers building and running the InfiniGPT Matrix bot with Docker and Docker Compose. The image includes `libolm` for E2E, runs as a non‑root user, and persists sensitive state under `/data`.
+This guide covers building and running the Agent Smithers Matrix bot with Docker and Docker Compose. The image includes `libolm` for E2E, runs as a non‑root user, and persists sensitive state under `/data`.
 
 ## Prerequisites
 
@@ -13,13 +13,13 @@ This guide covers building and running the InfiniGPT Matrix bot with Docker and 
 Build from the repo root:
 
 ```bash
-docker build -t infinigpt-matrix:latest .
+docker build -t agent-smithers:latest .
 ```
 
 What the image does:
 
 - Installs the package from the repo (`pip install .`)
-- Runs `infinigpt-matrix` by default with `--env-file /data/.env --store-path /data/store`
+- Runs `agent-smithers` by default with `--env-file /data/.env --store-path /data/store`
 
 ## Run with Docker
 
@@ -36,11 +36,11 @@ Edit `.env` and set your OpenAI key, Matrix credentials, rooms, and optional MCP
 
 ```bash
 docker run --rm -it \
-  --name infinigpt \
+  --name agent-smithers \
   -v "$(pwd)/.env":/data/.env:ro \
   -v "$(pwd)/store":/data/store \
   -v "$(pwd)/images":/data/images \
-  infinigpt-matrix:latest
+  agent-smithers:latest
 ```
 
 Notes:
@@ -54,15 +54,15 @@ An example compose service:
 
 ```yaml
 services:
-  infinigpt:
-    image: infinigpt-matrix:latest
+  agent-smithers:
+    image: agent-smithers:latest
     user: "YOUR UID:YOUR GID"
-    container_name: infinigpt-matrix
+    container_name: agent-smithers
     volumes:
       - ./.env:/data/.env:ro
       - ./store:/data/store
       - ./images:/data/images
-    command: ["infinigpt-matrix", "--env-file", "/data/.env", "--store-path", "/data/store", "--log-level", "INFO"]
+    command: ["agent-smithers", "--env-file", "/data/.env", "--store-path", "/data/store", "--log-level", "INFO"]
 ```
 
 Ensure your `store/` directory is writable by the container user.

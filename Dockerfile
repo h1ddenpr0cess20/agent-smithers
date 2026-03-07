@@ -1,4 +1,4 @@
-# Minimal, secure image for the InfiniGPT Matrix bot
+# Minimal, secure image for the Agent Smithers Matrix bot
 # - Includes libolm runtime for E2E support (matrix-nio[e2e])
 # - Runs as non-root and persists sensitive state under /data
 
@@ -23,7 +23,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project and install as a package to get the console script
 COPY pyproject.toml README.md LICENSE ./
-COPY infinigpt ./infinigpt
+COPY agent_smithers ./agent_smithers
 COPY docs ./docs
 RUN pip install --no-cache-dir .
 
@@ -36,8 +36,8 @@ USER app
 VOLUME ["/data"]
 
 # Sensible defaults; override at runtime as needed
-ENV INFINIGPT_ENV_FILE=/data/.env \
-    INFINIGPT_LOG_LEVEL=INFO
+ENV AGENT_SMITHERS_ENV_FILE=/data/.env \
+    AGENT_SMITHERS_LOG_LEVEL=INFO
 
 # No ports need exposure; the bot connects out to Matrix and providers
-CMD ["infinigpt-matrix", "--env-file", "/data/.env", "--store-path", "/data/store"]
+CMD ["agent-smithers", "--env-file", "/data/.env", "--store-path", "/data/store"]

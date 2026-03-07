@@ -4,17 +4,17 @@ The bot is a small async application that wires a Matrix client to a provider Re
 
 ## Main Components
 
-- `infinigpt/app.py`
+- `agent_smithers/app.py`
   Runtime context, hosted tool config, MCP approval loop, artifact handling, and Matrix sync startup.
-- `infinigpt/llm_client.py`
+- `agent_smithers/llm_client.py`
   Provider-aware Responses API client plus model discovery and file download helpers.
-- `infinigpt/history.py`
+- `agent_smithers/history.py`
   In-memory per-room, per-user message history.
-- `infinigpt/matrix_client.py`
+- `agent_smithers/matrix_client.py`
   Thin wrapper around `matrix-nio`.
-- `infinigpt/handlers/*`
+- `agent_smithers/handlers/*`
   Command handlers for `.ai`, `.model`, `.persona`, `.x`, and admin commands.
-- `infinigpt/config.py`
+- `agent_smithers/config.py`
   `.env` parsing and validation.
 
 ## Request Flow

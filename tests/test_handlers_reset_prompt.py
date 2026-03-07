@@ -1,7 +1,7 @@
 import pytest
 
-from infinigpt.handlers.cmd_reset import handle_reset
-from infinigpt.history import HistoryStore
+from agent_smithers.handlers.cmd_reset import handle_reset
+from agent_smithers.history import HistoryStore
 
 
 class Ctx:

@@ -1,7 +1,7 @@
 import asyncio
 
-from infinigpt.app import AppContext
-from infinigpt.config import AppConfig, LLMConfig, MatrixConfig
+from agent_smithers.app import AppContext
+from agent_smithers.config import AppConfig, LLMConfig, MatrixConfig
 
 
 class FakeLLM:
@@ -133,6 +133,42 @@ def test_send_response_artifacts_handles_file_backed_image_payload():
         assert len(ctx.matrix.sent_images) == 1
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_extract_text_strips_inline_citation_markers():
+    response = {
+        "output_text": "Answer with sources【abc†source】",
+    }
+    assert AppContext._extract_text(response) == "Answer with sources"
+
+
+def test_extract_text_strips_annotation_text_from_output_items():
+    response = {
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Answer text",
+                        "annotations": [
+                            {
+                                "type": "url_citation",
+                                "text": "",
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    assert AppContext._extract_text(response) == "Answer text"
+
+
+def test_strip_inline_citations_removes_annotation_text():
+    text = "Answer text"
+    annotations = [{"type": "url_citation", "text": ""}]
+    assert AppContext._strip_inline_citations(text, annotations) == "Answer text"
 
 
 def test_xai_hosted_tools_include_x_search_and_map_mcp_fields():

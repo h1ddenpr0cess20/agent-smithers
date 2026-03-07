@@ -1,6 +1,8 @@
-# infinigpt-matrix
+# Agent Smithers
 
-InfiniGPT is a Matrix bot built around the Responses API. It keeps the upstream Matrix/history/command structure, and supports OpenAI or xAI with hosted tools plus remote MCP servers.
+Agent Smithers is a Matrix bot built around the Responses API. It keeps the upstream Matrix/history/command structure, and supports OpenAI or xAI with hosted tools plus remote MCP servers.
+
+The name is a deliberate mashup of Agent Smith from *The Matrix* and Smithers, Mr. Burns' assistant from *The Simpsons*.
 
 ## Documentation
 
@@ -41,9 +43,9 @@ From source (installs CLI):
 From source without installing the package:
 
 - `pip install -r requirements.txt`
-- Run with: `python -m infinigpt --env-file .env`
+- Run with: `python -m agent_smithers --env-file .env`
 
-After installation, use the `infinigpt-matrix` command.
+After installation, use the `agent-smithers` command.
 
 ## Quick Start
 
@@ -52,8 +54,8 @@ After installation, use the `infinigpt-matrix` command.
 3) Fill in your provider key and Matrix settings in `.env`
 4) Run:
 
-- Installed command: `infinigpt-matrix --env-file .env`
-- As module: `python -m infinigpt --env-file .env`
+- Installed command: `agent-smithers --env-file .env`
+- As module: `python -m agent_smithers --env-file .env`
 
 ## Usage
 

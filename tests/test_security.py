@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from infinigpt.security import Security
+from agent_smithers.security import Security
 
 
 class FakeMatrix:

@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
-Name: infinigpt-matrix
+Name: agent-smithers
 Version: 0.1.0
-Summary: InfiniGPT Matrix bot (modular)
+Summary: Agent Smithers Matrix bot (modular)
 Requires-Python: >=3.10
 License-File: LICENSE
 Requires-Dist: matrix-nio[e2e]

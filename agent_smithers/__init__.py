@@ -1,4 +1,4 @@
-"""infinigpt package.
+"""agent_smithers package.
 
 Modular Matrix bot with multi-provider LLM support.
 """
@@ -13,4 +13,3 @@ __all__ = [
     "security",
     "tools",
 ]
-

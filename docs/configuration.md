@@ -1,6 +1,6 @@
 # Configuration
 
-InfiniGPT now reads configuration from a `.env` file. By default it uses `./.env`, or you can pass a custom path with `--env-file`.
+Agent Smithers now reads configuration from a `.env` file. By default it uses `./.env`, or you can pass a custom path with `--env-file`.
 
 ## Required Variables
 
@@ -68,7 +68,7 @@ OPENAI_MODELS=gpt-5-mini
 XAI_MODELS=grok-4
 DEFAULT_MODEL=gpt-5-mini
 SERVER_MODELS=true
-BOT_PERSONALITY=an AI that can assume any personality, named InfiniGPT
+BOT_PERSONALITY=an AI that can assume any personality, named Agent Smithers
 BOT_PROMPT_PREFIX="assume the personality of "
 BOT_PROMPT_SUFFIX=". roleplay and never break character."
 RESPONSES_OPTIONS={}

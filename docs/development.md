@@ -3,13 +3,13 @@
 ## Local Setup
 
 - Config lives in `.env`
-- Main runtime is `infinigpt/app.py`
-- OpenAI API integration is in `infinigpt/llm_client.py`
+- Main runtime is `agent_smithers/app.py`
+- OpenAI API integration is in `agent_smithers/llm_client.py`
 
 ## Run
 
 ```bash
-python -m infinigpt --env-file .env
+python -m agent_smithers --env-file .env
 ```
 
 ## Tests
@@ -18,7 +18,7 @@ Focused local verification:
 
 ```bash
 pytest -q tests/test_cli.py tests/test_config.py tests/test_llm_client.py tests/test_handlers_model_ai_help.py tests/test_handlers_x.py tests/test_tool_calling.py
-python3 -m compileall infinigpt
+python3 -m compileall agent_smithers
 ```
 
 ## Guidelines
