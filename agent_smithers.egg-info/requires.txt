@@ -1,8 +1,0 @@
-matrix-nio[e2e]
-httpx
-markdown
-rich
-
-[test]
-pytest
-pytest-asyncio
