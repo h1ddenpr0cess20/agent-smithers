@@ -21,6 +21,12 @@ DEFAULT_MODEL=your-model-name
 
 `SERVER_MODELS=true` will cause the bot to fetch the current model list from LM Studio on startup. This is useful if you frequently swap models without restarting the bot.
 
+## Docker
+
+When running in Docker, keep `LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1` in your `.env` — the bot automatically rewrites it to `host.docker.internal` when it detects it is running inside a container. On Linux you must also pass `--add-host=host.docker.internal:host-gateway` (or the Compose equivalent) so the container can reach the host network. See [Docker](docker.md) for the full run command.
+
+Make sure LM Studio's local server is bound to `0.0.0.0` (not just `127.0.0.1`) in LM Studio → Local Server settings.
+
 ## Notes
 
 - LM Studio does not support hosted tools (web search, code interpreter, image generation, or MCP). Tool calling is disabled automatically for LMStudio models.

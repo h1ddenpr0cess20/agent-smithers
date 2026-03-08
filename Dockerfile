@@ -28,7 +28,7 @@ COPY docs ./docs
 RUN pip install --no-cache-dir .
 
 # Non-root user for security (default UID 1000 for host bind-mount compatibility)
-RUN groupadd -r app && useradd -r -g app -u 1000 app 
+RUN groupadd app && useradd -g app -u 1000 app
 RUN mkdir -p /data/images && chown -R app:app /data
 RUN ln -s /data/images /app/images
 

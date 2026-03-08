@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 
 _RICH_CONSOLE: Any = None
-_STATUS_CONTENT_PADDING = 20
+_STATUS_CONTENT_PADDING = 30
 
 
 class _NoopStatus:

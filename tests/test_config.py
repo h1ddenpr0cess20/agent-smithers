@@ -12,6 +12,7 @@ from agent_smithers.config import (
     _parse_bool,
     _parse_csv,
     _parse_json,
+    _resolve_lmstudio_url,
     load_env_file,
 )
 from agent_smithers.exceptions import ConfigError
@@ -439,6 +440,29 @@ def test_provider_for_model_case_insensitive_grok_prefix():
 def test_provider_for_model_none_input():
     """None-ish model input should return None."""
     assert provider_for_model(None, {"openai": ["gpt-4o"]}) is None
+
+
+def test_resolve_lmstudio_url_outside_docker():
+    """Outside Docker (no /.dockerenv), URL is returned unchanged."""
+    # /.dockerenv does not exist in the test environment
+    assert _resolve_lmstudio_url("http://127.0.0.1:1234/v1") == "http://127.0.0.1:1234/v1"
+
+
+def test_resolve_lmstudio_url_in_docker(tmp_path):
+    """Inside Docker (/.dockerenv present), 127.0.0.1/localhost → host.docker.internal."""
+    import agent_smithers.config as cfg_mod
+    from unittest.mock import patch, MagicMock
+
+    dockerenv = MagicMock()
+    dockerenv.exists.return_value = True
+
+    with patch.object(cfg_mod, "Path", return_value=dockerenv):
+        assert _resolve_lmstudio_url("http://127.0.0.1:1234/v1") == "http://host.docker.internal:1234/v1"
+        assert _resolve_lmstudio_url("http://localhost:1234/v1") == "http://host.docker.internal:1234/v1"
+
+
+def test_resolve_lmstudio_url_empty():
+    assert _resolve_lmstudio_url("") == ""
 
 
 def test_load_env_file_skips_empty_keys(tmp_path):

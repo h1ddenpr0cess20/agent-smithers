@@ -156,6 +156,15 @@ def validate_config(cfg: AppConfig) -> Tuple[bool, List[str]]:
     return (len(errors) == 0, errors)
 
 
+def _resolve_lmstudio_url(url: str) -> str:
+    """Replace localhost/127.0.0.1 with host.docker.internal when running inside Docker."""
+    if not url or not Path("/.dockerenv").exists():
+        return url
+    return url.replace("127.0.0.1", "host.docker.internal").replace(
+        "localhost", "host.docker.internal"
+    )
+
+
 def load_config(path: Optional[str] = None) -> AppConfig:
     """Load application config from a .env file and environment variables."""
     load_env_file(path)
@@ -172,9 +181,9 @@ def load_config(path: Optional[str] = None) -> AppConfig:
     prompt_prefix = os.getenv("BOT_PROMPT_PREFIX", "assume the personality of ")
     prompt_suffix = os.getenv(
         "BOT_PROMPT_SUFFIX",
-        ". roleplay and never break character, never say you are not actually this character or refuse to play the character. keep your responses relatively short.",
+        ". roleplay and never break character, never say you are not actually this character or refuse to play the character.",
     )
-    prompt_extra = os.getenv("BOT_PROMPT_SUFFIX_EXTRA", "")
+    prompt_extra = os.getenv("BOT_PROMPT_SUFFIX_EXTRA", " keep your responses relatively short.")
     prompt = [prompt_prefix, prompt_suffix]
     if prompt_extra:
         prompt.append(prompt_extra)
@@ -199,7 +208,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
             "lmstudio": os.getenv("LMSTUDIO_API_KEY", "").strip(),
         },
         base_urls={
-            "lmstudio": os.getenv("LMSTUDIO_BASE_URL", "").strip(),
+            "lmstudio": _resolve_lmstudio_url(os.getenv("LMSTUDIO_BASE_URL", "").strip()),
         },
         default_model=default_model,
         personality=os.getenv(

@@ -31,7 +31,7 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
 - `BOT_PROMPT_SUFFIX`
   Suffix used to build the default system prompt.
 - `BOT_PROMPT_SUFFIX_EXTRA`
-  Optional extra suffix text.
+  Extra suffix text toggled by the `.verbose` command. Defaults to the brevity clause (`keep your responses relatively short.`). Set to empty to disable brevity by default.
 - `RESPONSES_OPTIONS`
   JSON object merged into Responses API calls.
 - `TOOLS_WEB_SEARCH`
