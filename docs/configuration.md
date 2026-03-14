@@ -46,6 +46,8 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
   `true` or `false`. Used by OpenAI hosted image generation and Grok Imagine local image tools when `XAI_API_KEY` is configured.
 - `TOOLS_VIDEO_GENERATION`
   `true` or `false`. Used by the local `generate_video` tool for OpenAI Sora and xAI Grok Imagine when the corresponding API keys are configured.
+- `VIDEO_WHITELIST`
+  Comma-separated Matrix user IDs or display names allowed to generate video. When set, only these users (plus admins) can trigger video generation. Leave empty to allow everyone. Admins configured in `MATRIX_ADMINS` are always allowed regardless of the whitelist. Can also be managed at runtime with the `.whitelist` admin command.
 - `MCP_SERVERS`
   JSON object defining remote MCP servers.
 - `LLM_TIMEOUT`
@@ -82,6 +84,7 @@ TOOLS_X_SEARCH=false
 TOOLS_CODE_INTERPRETER=true
 TOOLS_IMAGE_GENERATION=true
 TOOLS_VIDEO_GENERATION=true
+VIDEO_WHITELIST=@trusted:example.org,@creator:example.org
 MCP_SERVERS={"deepwiki":{"server_url":"https://mcp.deepwiki.com/mcp","require_approval":"never"}}
 LLM_TIMEOUT=180
 MATRIX_SERVER=https://matrix.org
@@ -102,4 +105,5 @@ MATRIX_E2E=true
 - `TOOLS_WEB_SEARCH_COUNTRY` is currently applied only to OpenAI `web_search`, because xAI's provider docs do not document a country filter for `web_search` or `x_search`.
 - `TOOLS_WEB_SEARCH_COUNTRY` is sent as a structured OpenAI `web_search.user_location.country` value. For xAI search tools, which do not currently document a country parameter, the bot adds a search-policy instruction so `x_search` and `web_search` still bias toward US sources.
 - `TOOLS_VIDEO_GENERATION` applies across OpenAI and xAI chat models; the tool backend is selected automatically or via the tool's `backend` argument.
+- `VIDEO_WHITELIST` is enforced at tool execution time. The video tool definitions are still sent to the model so it can explain the restriction, but the actual API call is blocked for non-whitelisted users. Admins are always allowed.
 - Keep `.env` out of version control.

@@ -25,6 +25,17 @@ VIDEO_GENERATION_TOOL_NAMES = {GROK_GENERATE_VIDEO_TOOL, SORA_GENERATE_VIDEO_TOO
 LOCAL_MEDIA_TOOL_NAMES = IMAGE_GENERATION_TOOL_NAMES | IMAGE_EDIT_TOOL_NAMES | VIDEO_GENERATION_TOOL_NAMES
 
 
+def _is_video_allowed(ctx: "AppContext", user_id: Optional[str]) -> bool:
+    """Check if a user is allowed to generate video based on the whitelist."""
+    if not ctx.video_whitelist_enabled:
+        return True
+    if not user_id:
+        return False
+    if user_id in ctx.admins:
+        return True
+    return user_id in ctx.video_whitelist
+
+
 def clean_response_text(
     ctx: "AppContext",
     text: str,
@@ -412,6 +423,8 @@ async def handle_generate_image_calls(
                     prompt=prompt,
                     args=args,
                 )
+            elif not _is_video_allowed(ctx, thread_user):
+                result = "Video generation is restricted. You are not on the whitelist."
             else:
                 result = await _execute_generate_video_call(
                     ctx,
