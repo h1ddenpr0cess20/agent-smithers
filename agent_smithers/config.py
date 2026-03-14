@@ -71,6 +71,7 @@ class MatrixConfig:
     device_id: str = ""
     store_path: str = "store"
     e2e: bool = True
+    video_whitelist: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -231,6 +232,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
     )
 
     admins = _parse_csv(os.getenv("MATRIX_ADMINS"))
+    video_whitelist = _parse_csv(os.getenv("VIDEO_WHITELIST"))
     matrix = MatrixConfig(
         server=os.getenv("MATRIX_SERVER", "").strip(),
         username=os.getenv("MATRIX_USERNAME", "").strip(),
@@ -241,6 +243,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         device_id=os.getenv("MATRIX_DEVICE_ID", "").strip(),
         store_path=os.getenv("MATRIX_STORE_PATH", "store").strip() or "store",
         e2e=_parse_bool(os.getenv("MATRIX_E2E"), True),
+        video_whitelist=video_whitelist,
     )
 
     cfg = AppConfig(llm=llm, matrix=matrix, markdown=_parse_bool(os.getenv("MARKDOWN"), True))

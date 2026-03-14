@@ -16,6 +16,7 @@ from .handlers.cmd_prompt import handle_custom, handle_persona
 from .handlers.cmd_reset import handle_clear, handle_reset
 from .handlers.cmd_tools import handle_tools
 from .handlers.cmd_verbose import handle_verbose
+from .handlers.cmd_whitelist import handle_whitelist
 from .handlers.cmd_x import handle_x
 from .handlers.router import Router
 from .security import Security
@@ -35,6 +36,7 @@ def build_router() -> Router:
     router.register(".verbose", handle_verbose, admin=True)
     router.register(".model", handle_model, admin=True)
     router.register(".clear", handle_clear, admin=True)
+    router.register(".whitelist", handle_whitelist, admin=True)
     return router
 
 

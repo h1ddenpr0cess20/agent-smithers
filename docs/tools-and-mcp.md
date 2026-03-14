@@ -71,6 +71,28 @@ Example:
 MCP_SERVERS={"deepwiki":{"server_url":"https://mcp.deepwiki.com/mcp","auto_approve":true}}
 ```
 
+## Video Whitelist
+
+Video generation through Sora and Grok costs real money per call. To prevent surprise bills, you can restrict who is allowed to generate video using the `VIDEO_WHITELIST` environment variable or the `.whitelist` admin command.
+
+When the whitelist is active, only listed users and admins can generate video. Everyone else gets a rejection message. Admins (configured via `MATRIX_ADMINS`) are always allowed regardless of the whitelist.
+
+```env
+VIDEO_WHITELIST=@trusted:example.org,@creator:example.org
+```
+
+At runtime, admins can manage the whitelist without restarting:
+
+```text
+.whitelist add @user:server
+.whitelist remove @user:server
+.whitelist list
+```
+
+Adding the first user via `.whitelist add` automatically enables enforcement. Pre-seeding via the env var also enables it on startup.
+
+**Warning about smaller models:** Low-powered or local LLM models (e.g. small models served through LM Studio) may call video generation tools unpredictably or by accident. If you run such models alongside video-capable providers, either set `TOOLS_VIDEO_GENERATION=false` or use the whitelist to prevent unintended expensive API calls. The whitelist blocks the actual video API call even if the model emits a tool call, so it acts as a safety net regardless of model behavior.
+
 ## Image Output
 
 If image or video generation returns media data, the bot writes temporary artifacts locally and uploads them to Matrix.

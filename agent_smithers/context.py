@@ -64,6 +64,8 @@ class AppContext:
         self.user_models: Dict[str, Dict[str, str]] = {}
         self.verbose = False
         self.generated_media: Dict[str, Dict[str, Dict[str, Dict[str, str]]]] = {}
+        self.video_whitelist: set[str] = set(getattr(cfg.matrix, "video_whitelist", []))
+        self.video_whitelist_enabled: bool = bool(self.video_whitelist)
 
         self.llm = LLMClient(cfg)
         self.hosted_tools_by_provider, self._mcp_auto_approve = tooling.initialize_hosted_tools(self)
@@ -78,6 +80,14 @@ class AppContext:
             self.logger.info("Hosted tools enabled with %d tool definitions", len(self.hosted_tools))
         else:
             self.logger.info("Tool calling disabled: no hosted tools configured")
+
+    def is_video_allowed(self, sender_id: str, sender_display: str) -> bool:
+        """Return True if the user is allowed to generate video."""
+        if not self.video_whitelist_enabled:
+            return True
+        if sender_display in self.admins or sender_id in self.admins:
+            return True
+        return sender_id in self.video_whitelist or sender_display in self.video_whitelist
 
     def _configured_providers(self) -> List[str]:
         return tooling.configured_providers(self)
