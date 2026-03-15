@@ -714,6 +714,57 @@ def test_apply_search_country_policy_prepends_system_when_none():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
+def test_apply_search_country_policy_skipped_when_toggle_disabled():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"xai": ["grok-4"]},
+            api_keys={"xai": "X"},
+            default_model="grok-4",
+            personality="p",
+            prompt=["you are ", "."],
+            web_search_country="US",
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
+    )
+    ctx = AppContext(cfg)
+    try:
+        ctx.search_country_enabled = False
+        messages = [{"role": "user", "content": "hi"}]
+        result = ctx._apply_search_country_policy(messages, provider="xai", tools=[{"type": "web_search"}])
+        assert len(result) == 1
+        assert result[0]["content"] == "hi"
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
+def test_tools_for_model_strips_user_location_when_toggle_disabled():
+    cfg = AppConfig(
+        llm=LLMConfig(
+            models={"openai": ["gpt-5-mini"]},
+            api_keys={"openai": "X"},
+            default_model="gpt-5-mini",
+            personality="p",
+            prompt=["you are ", "."],
+            web_search_country="US",
+        ),
+        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
+    )
+    ctx = AppContext(cfg)
+    try:
+        # With toggle on, user_location should be present
+        tools_on = ctx._tools_for_model("gpt-5-mini")
+        ws_on = [t for t in tools_on if t.get("type") == "web_search"]
+        assert ws_on and "user_location" in ws_on[0]
+
+        # With toggle off, user_location should be stripped
+        ctx.search_country_enabled = False
+        tools_off = ctx._tools_for_model("gpt-5-mini")
+        ws_off = [t for t in tools_off if t.get("type") == "web_search"]
+        assert ws_off and "user_location" not in ws_off[0]
+    finally:
+        ctx.executor.shutdown(wait=False, cancel_futures=True)
+
+
 # --- _walk_image_results ---
 
 def test_walk_image_results_string_yields_inline():

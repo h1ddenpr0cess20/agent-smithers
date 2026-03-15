@@ -104,3 +104,16 @@ Admins can disable all hosted tools and MCP access at runtime with:
 ```text
 .tools off
 ```
+
+## Country Filter Toggle
+
+When `TOOLS_WEB_SEARCH_COUNTRY` is set, search results are biased to that country by default. Admins can toggle this at runtime:
+
+```text
+.country off    # disable country filtering
+.country on     # re-enable it
+.country toggle # flip the current state
+.country        # show current status
+```
+
+When disabled, OpenAI's `user_location` is stripped from `web_search` tools and the xAI search-policy instruction is omitted.

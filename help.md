@@ -25,4 +25,5 @@ Use dot-commands or address the bot by name followed by a colon.
 | `.tools [on\|off\|toggle\|status]` | Enable or disable hosted tools and MCP access at runtime. | `.tools toggle` |
 | `.clear` | Reset history and defaults for all users globally. | `.clear` |
 | `.verbose [on\|off\|toggle]` | Control whether the brevity clause is added to new conversations. | `.verbose off` |
+| `.country [on\|off\|toggle\|status]` | Toggle search country filtering (e.g. US-only results) at runtime. | `.country off` |
 | `.whitelist add\|remove\|list` | Manage the video generation whitelist. Admins are always allowed. | `.whitelist add @user:server` |

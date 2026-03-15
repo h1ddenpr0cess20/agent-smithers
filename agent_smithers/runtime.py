@@ -9,6 +9,7 @@ from typing import Optional
 from .config import AppConfig
 from .context import AppContext
 from .handlers.cmd_ai import handle_ai
+from .handlers.cmd_country import handle_country
 from .handlers.cmd_help import handle_help
 from .handlers.cmd_model import handle_model
 from .handlers.cmd_mymodel import handle_mymodel
@@ -37,6 +38,7 @@ def build_router() -> Router:
     router.register(".model", handle_model, admin=True)
     router.register(".clear", handle_clear, admin=True)
     router.register(".whitelist", handle_whitelist, admin=True)
+    router.register(".country", handle_country, admin=True)
     return router
 
 
