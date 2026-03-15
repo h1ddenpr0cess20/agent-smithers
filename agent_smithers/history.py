@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import json
+import logging
+from pathlib import Path
 from typing import Dict, List, Optional
+
+from cryptography.fernet import Fernet, InvalidToken
+
+logger = logging.getLogger(__name__)
 
 
 class HistoryStore:
-    """In-memory history per room and user with system prompt support."""
+    """In-memory history per room and user with system prompt support.
+
+    When ``store_path`` and ``encryption_key`` are provided, history is
+    persisted to an encrypted file and restored on startup.
+    """
 
     def __init__(
         self,
@@ -16,6 +27,8 @@ class HistoryStore:
         max_items: int = 24,
         history_size: Optional[int] = None,
         system_prompt: Optional[str] = None,
+        store_path: Optional[str] = None,
+        encryption_key: Optional[str] = None,
     ) -> None:
         # Back-compat: allow alternate constructor via system_prompt/history_size
         if system_prompt is not None:
@@ -33,8 +46,18 @@ class HistoryStore:
         self.max_items = history_size or max_items
         self._include_extra = True
         self._messages: Dict[str, Dict[str, List[Dict[str, str]]]] = {}
+        self._locations: Dict[str, str] = {}  # user_id -> location
         # For per-user model override parity with app
         self.user_models: Dict[str, Dict[str, str]] = {}
+
+        # Encrypted persistence
+        self._store_file: Optional[Path] = None
+        self._fernet: Optional[Fernet] = None
+        if store_path and encryption_key:
+            self._store_file = Path(store_path) / "history.enc"
+            self._store_file.parent.mkdir(parents=True, exist_ok=True)
+            self._fernet = Fernet(encryption_key.encode() if isinstance(encryption_key, str) else encryption_key)
+            self._load()
 
     @property
     def messages(self) -> Dict[str, Dict[str, List[Dict[str, str]]]]:
@@ -55,11 +78,18 @@ class HistoryStore:
         """Compute the current suffix including optional extra parts."""
         return f"{self.prompt_suffix}{self.prompt_suffix_extra if self._include_extra and self.prompt_suffix_extra else ''}"
 
+    def _location_suffix(self, user: str) -> str:
+        """Return a location note for the user, or empty string."""
+        loc = self._locations.get(user)
+        if loc:
+            return f" The user is located in {loc}."
+        return ""
+
     def _system_for(self, room: str, user: str) -> str:
         """Build the system prompt for a specific room/user thread."""
         if self._fixed_system_prompt is not None:
-            return self._fixed_system_prompt
-        return f"{self.prompt_prefix}{self.personality}{self._full_suffix()}"
+            return self._fixed_system_prompt + self._location_suffix(user)
+        return f"{self.prompt_prefix}{self.personality}{self._full_suffix()}{self._location_suffix(user)}"
 
     def _ensure(self, room: str, user: str) -> None:
         """Ensure a history thread exists, seeding with a system message."""
@@ -78,13 +108,15 @@ class HistoryStore:
             custom: Optional custom system prompt string to use instead.
         """
         self._ensure(room, user)
+        loc = self._location_suffix(user)
         if custom:
-            self._messages[room][user] = [{"role": "system", "content": custom}]
+            self._messages[room][user] = [{"role": "system", "content": custom + loc}]
         else:
             p = persona if (persona is not None and persona != "") else self.personality
             self._messages[room][user] = [
-                {"role": "system", "content": f"{self.prompt_prefix}{p}{self._full_suffix()}"}
+                {"role": "system", "content": f"{self.prompt_prefix}{p}{self._full_suffix()}{loc}"}
             ]
+        self._save()
 
     def add(self, room: str, user: str, role: str, content: str) -> None:
         """Append a message and trim to max history length.
@@ -98,6 +130,7 @@ class HistoryStore:
         self._ensure(room, user)
         self._messages[room][user].append({"role": role, "content": content})
         self._trim(room, user)
+        self._save()
 
     def get(self, room: str, user: str) -> List[Dict[str, str]]:
         """Return a copy of the message list for a thread."""
@@ -117,6 +150,7 @@ class HistoryStore:
         self._messages[room][user] = []
         if not stock:
             self.init_prompt(room, user, persona=self.personality)
+        self._save()
 
     # alias used by our handlers
     def clear(self, room: str, user: str) -> None:
@@ -124,8 +158,13 @@ class HistoryStore:
         self.reset(room, user, stock=True)
 
     def clear_all(self) -> None:
-        """Clear all histories across rooms and users."""
+        """Clear all histories across rooms and users.
+
+        Locations are preserved since they are user preferences, not
+        conversation state.
+        """
         self._messages.clear()
+        self._save()
 
     def _trim(self, room: str, user: str) -> None:
         """Trim a thread's messages to the configured max length."""
@@ -138,3 +177,72 @@ class HistoryStore:
                     break
             else:
                 msgs.pop(0)
+
+    # -- User locations --------------------------------------------------------
+
+    def set_location(self, user: str, location: str) -> None:
+        """Set or clear the location for a user.
+
+        When set, the location is appended to system prompts across all rooms.
+        Existing threads are updated to reflect the new location.
+
+        Args:
+            user: Matrix user ID.
+            location: Location string, or empty to clear.
+        """
+        if location:
+            self._locations[user] = location
+        else:
+            self._locations.pop(user, None)
+        # Update system prompts in all existing threads for this user
+        for room in self._messages:
+            if user in self._messages[room]:
+                msgs = self._messages[room][user]
+                if msgs and msgs[0].get("role") == "system":
+                    # Rebuild the system prompt with the new location
+                    old_content = msgs[0]["content"]
+                    # Strip any existing location suffix
+                    marker = " The user is located in "
+                    idx = old_content.find(marker)
+                    base = old_content[:idx] if idx != -1 else old_content
+                    msgs[0]["content"] = base + self._location_suffix(user)
+        self._save()
+
+    def get_location(self, user: str) -> Optional[str]:
+        """Return the stored location for a user, or None."""
+        return self._locations.get(user)
+
+    # -- Encrypted persistence -------------------------------------------------
+
+    def _save(self) -> None:
+        """Encrypt and write history to disk. No-op if persistence is not configured."""
+        if not self._fernet or not self._store_file:
+            return
+        try:
+            payload = {"messages": self._messages, "locations": self._locations}
+            data = json.dumps(payload, separators=(",", ":")).encode()
+            self._store_file.write_bytes(self._fernet.encrypt(data))
+        except Exception:
+            logger.exception("Failed to save encrypted history")
+
+    def _load(self) -> None:
+        """Decrypt and restore history from disk. No-op if file does not exist."""
+        if not self._fernet or not self._store_file or not self._store_file.exists():
+            return
+        try:
+            encrypted = self._store_file.read_bytes()
+            data = self._fernet.decrypt(encrypted)
+            parsed = json.loads(data)
+            # Support both old format (bare messages dict) and new format
+            if isinstance(parsed, dict) and "messages" in parsed:
+                self._messages = parsed["messages"]
+                self._locations = parsed.get("locations", {})
+            else:
+                self._messages = parsed
+        except InvalidToken:
+            logger.error(
+                "Failed to decrypt history file — wrong key or corrupted data. "
+                "Starting with empty history."
+            )
+        except Exception:
+            logger.exception("Failed to load encrypted history")

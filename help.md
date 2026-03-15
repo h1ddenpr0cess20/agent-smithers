@@ -13,6 +13,7 @@ Use dot-commands or address the bot by name followed by a colon.
 | `.mymodel [name]` | Show your current model or set a per-user model override. | `.mymodel gpt-4o-mini` |
 | `.reset` | Clear your history and restore the default persona. | `.reset` |
 | `.stock` | Clear your history and run without any system prompt. | `.stock` |
+| `.location [place]` | Show, set, or clear your location for contextual responses. | `.location Tokyo, Japan` |
 | `.help` | Show this help message. | `.help` |
 
 ~~~

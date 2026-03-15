@@ -12,7 +12,8 @@ dependencies = [
   "httpx",
   "markdown",
   "rich",
-  "pillow"
+  "pillow",
+  "cryptography"
 ]
 
 [project.scripts]

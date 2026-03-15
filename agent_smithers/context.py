@@ -50,6 +50,8 @@ class AppContext:
             personality=cfg.llm.personality,
             prompt_suffix_extra=extra,
             max_items=cfg.llm.history_size,
+            store_path=cfg.matrix.store_path if cfg.llm.history_encryption_key else None,
+            encryption_key=cfg.llm.history_encryption_key or None,
         )
 
         self.models = cfg.llm.models

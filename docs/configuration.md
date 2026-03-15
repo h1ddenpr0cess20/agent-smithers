@@ -54,6 +54,8 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
   Request timeout in seconds.
 - `HISTORY_SIZE`
   Per-thread message cap.
+- `HISTORY_ENCRYPTION_KEY`
+  Fernet encryption key for persisting conversation history to disk. Generate one with `agent-smithers --generate-key`. When set, history is saved to `<MATRIX_STORE_PATH>/history.enc` and restored on startup. When empty (default), history is in-memory only and lost on restart.
 - `MARKDOWN`
   Enable Markdown-to-HTML rendering for Matrix messages.
 - `MATRIX_ADMINS`
@@ -92,6 +94,7 @@ MATRIX_USERNAME=@bot:example.org
 MATRIX_PASSWORD=secret
 MATRIX_CHANNELS=!roomid:example.org,#ops:example.org
 MATRIX_ADMINS=@admin:example.org
+HISTORY_ENCRYPTION_KEY=
 MATRIX_STORE_PATH=store
 MATRIX_E2E=true
 ```
@@ -106,4 +109,6 @@ MATRIX_E2E=true
 - `TOOLS_WEB_SEARCH_COUNTRY` filtering is enabled by default when the variable is set, but can be toggled at runtime with the `.country` admin command.
 - `TOOLS_VIDEO_GENERATION` applies across OpenAI and xAI chat models; the tool backend is selected automatically or via the tool's `backend` argument.
 - `VIDEO_WHITELIST` is enforced at tool execution time. The video tool definitions are still sent to the model so it can explain the restriction, but the actual API call is blocked for non-whitelisted users. Admins are always allowed.
+- `HISTORY_ENCRYPTION_KEY` must be a valid Fernet key (base64-encoded 32 bytes). Use `agent-smithers --generate-key` to create one.
+- When encrypted history is enabled, user locations set via `.location` are also persisted.
 - Keep `.env` out of version control.

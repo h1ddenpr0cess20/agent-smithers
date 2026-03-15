@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-s", "--store-path", help="Override store path")
     parser.add_argument("-S", "--server-models", action="store_true", help="Refresh the model list from the configured provider on startup")
     parser.add_argument("-v", "--verbose", dest="verbose_mode", action="store_true", help="Enable verbose mode (omit brevity clause)")
+    parser.add_argument("--generate-key", action="store_true", help="Generate a Fernet encryption key for HISTORY_ENCRYPTION_KEY and exit")
     return parser
 
 
@@ -47,6 +48,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    if args.generate_key:
+        from cryptography.fernet import Fernet
+        print(Fernet.generate_key().decode())
+        return 0
 
     setup_logging(args.log_level)
     env_file = args.env_file or ".env"

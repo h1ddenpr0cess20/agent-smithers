@@ -80,4 +80,4 @@ See [Configuration](configuration.md) for the full schema and validation rules.
 
 ## Security Notes
 
-- Treat `store/` as sensitive; back it up securely and do not commit it.
+- Treat `store/` as sensitive — it may contain encrypted conversation history. Back it up securely and do not commit it.

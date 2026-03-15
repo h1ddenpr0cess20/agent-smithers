@@ -9,7 +9,7 @@ The bot is a small async application that wires a Matrix client to a provider Re
 - `agent_smithers/llm_client.py`
   Provider-aware Responses API client plus model discovery and file download helpers.
 - `agent_smithers/history.py`
-  In-memory per-room, per-user message history.
+  Per-room, per-user message history with optional Fernet-encrypted persistence.
 - `agent_smithers/matrix_client.py`
   Thin wrapper around `matrix-nio`.
 - `agent_smithers/handlers/*`
