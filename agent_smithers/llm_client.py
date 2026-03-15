@@ -287,6 +287,7 @@ class LLMClient:
             for key, value in options.items():
                 if value is not None:
                     payload[key] = value
+        payload["store"] = False
         if provider == "xai" and any(
             isinstance(tool, dict) and tool.get("type") in {"web_search", "x_search"}
             for tool in (tools or [])
