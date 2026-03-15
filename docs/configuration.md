@@ -102,8 +102,8 @@ MATRIX_E2E=true
 - `RESPONSES_OPTIONS` must be valid JSON.
 - Set the keys and model lists for the providers you want available at the same time.
 - `OPENAI_MODELS` or `XAI_MODELS` is still useful as fallback even when `SERVER_MODELS=true`.
-- `TOOLS_WEB_SEARCH_COUNTRY` is currently applied only to OpenAI `web_search`, because xAI's provider docs do not document a country filter for `web_search` or `x_search`.
 - `TOOLS_WEB_SEARCH_COUNTRY` is sent as a structured OpenAI `web_search.user_location.country` value. For xAI search tools, which do not currently document a country parameter, the bot adds a search-policy instruction so `x_search` and `web_search` still bias toward US sources.
+- `TOOLS_WEB_SEARCH_COUNTRY` filtering is enabled by default when the variable is set, but can be toggled at runtime with the `.country` admin command.
 - `TOOLS_VIDEO_GENERATION` applies across OpenAI and xAI chat models; the tool backend is selected automatically or via the tool's `backend` argument.
 - `VIDEO_WHITELIST` is enforced at tool execution time. The video tool definitions are still sent to the model so it can explain the restriction, but the actual API call is blocked for non-whitelisted users. Admins are always allowed.
 - Keep `.env` out of version control.

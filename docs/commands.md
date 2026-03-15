@@ -26,6 +26,7 @@ Admin users are configured via `MATRIX_ADMINS` in `.env` (comma-separated Matrix
 | `.tools [on\|off\|toggle\|status]` | Enable or disable hosted tools and MCP access at runtime without restarting. |
 | `.clear` | Reset conversation history for all users and restore default model and personality globally. |
 | `.verbose [on\|off\|toggle]` | Control whether the brevity clause is appended to new conversations. Useful when you want longer, more detailed responses. |
+| `.country [on\|off\|toggle\|status]` | Toggle search country filtering at runtime. When disabled, search results are no longer biased to the configured country. |
 | `.whitelist add\|remove\|list` | Manage the video generation whitelist. `add <user>` grants access, `remove <user>` revokes it, `list` shows current entries. Admins are always allowed. |
 
 ## Addressing the Bot
