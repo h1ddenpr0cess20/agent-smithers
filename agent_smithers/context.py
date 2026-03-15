@@ -66,6 +66,7 @@ class AppContext:
         self.generated_media: Dict[str, Dict[str, Dict[str, Dict[str, str]]]] = {}
         self.video_whitelist: set[str] = set(getattr(cfg.matrix, "video_whitelist", []))
         self.video_whitelist_enabled: bool = bool(self.video_whitelist)
+        self.search_country_enabled: bool = bool(cfg.llm.web_search_country)
 
         self.llm = LLMClient(cfg)
         self.hosted_tools_by_provider, self._mcp_auto_approve = tooling.initialize_hosted_tools(self)

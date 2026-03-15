@@ -60,7 +60,20 @@ def provider_for_context_model(ctx: "AppContext", model: str) -> str:
 def tools_for_model(ctx: "AppContext", model: str) -> List[Dict[str, Any]]:
     provider = provider_for_context_model(ctx, model)
     tools = list(ctx.hosted_tools_by_provider.get(provider, []))
-    return [tool for tool in tools if tool_supported_for_model(provider, model, tool)]
+    tools = [tool for tool in tools if tool_supported_for_model(provider, model, tool)]
+    if not getattr(ctx, "search_country_enabled", True):
+        tools = _strip_search_country(tools)
+    return tools
+
+
+def _strip_search_country(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return a copy of *tools* with user_location removed from web_search tools."""
+    result: List[Dict[str, Any]] = []
+    for tool in tools:
+        if str(tool.get("type") or "") == "web_search" and "user_location" in tool:
+            tool = {k: v for k, v in tool.items() if k != "user_location"}
+        result.append(tool)
+    return result
 
 
 def tool_supported_for_model(provider: str, model: str, tool: Dict[str, Any]) -> bool:
@@ -391,7 +404,7 @@ def apply_search_country_policy(
     tools: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     country = ctx.cfg.llm.web_search_country
-    if not country or provider != "xai":
+    if not country or not getattr(ctx, "search_country_enabled", True) or provider != "xai":
         return list(messages)
     uses_search = any(
         isinstance(tool, dict) and str(tool.get("type") or "") in {"web_search", "x_search"}
