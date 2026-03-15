@@ -24,12 +24,15 @@ agent-smithers --env-file .env
   Force model refresh from the configured provider on startup
 - `-v, --verbose`
   Enable verbose mode for new conversations
+- `--generate-key`
+  Generate a Fernet encryption key for `HISTORY_ENCRYPTION_KEY` and exit
 
 ## Examples
 
 ```bash
 agent-smithers --env-file .env
 agent-smithers --env-file .env --model gpt-5-mini
+agent-smithers --generate-key
 AGENT_SMITHERS_LOG_LEVEL=DEBUG agent-smithers --env-file .env
 python -m agent_smithers --env-file .env
 ```

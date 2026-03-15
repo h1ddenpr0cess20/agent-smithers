@@ -14,6 +14,7 @@ Users interact with Agent Smithers using dot-commands or by mentioning the bot n
 | `.mymodel [name]` | No args: show your current model and all available models. With a name: set a per-user, per-room model override. |
 | `.reset` | Clear your history and restore the default persona. |
 | `.stock` | Clear your history and run without any system prompt. |
+| `.location [place]` | No args: show your current location. With a place: set your location (appended to your system prompt so the model can tailor responses). Use `.location clear` to remove it. |
 | `.help` | Show help text. Reads `help.md` or `help.txt` from the working directory if present. |
 
 ## Admin Commands
@@ -36,3 +37,7 @@ The bot responds to `.ai` and to `BotName:` where `BotName` is the bot's Matrix 
 ## Per-user Model Overrides
 
 `.mymodel` sets a model override scoped to the current user and room. The override persists for the session. It does not affect other users. To see which models are available, run `.mymodel` with no arguments.
+
+## User Location
+
+`.location` lets users set their location (e.g. `.location Tokyo, Japan`). The location is appended to the system prompt as context so the model can provide locally relevant answers (time, weather, recommendations, etc.). Locations are per-user (not per-room), persist across rooms and sessions (when encrypted history is enabled), and survive `.clear`. Use `.location clear` to remove it.

@@ -57,6 +57,7 @@ Send these in any room the bot has joined.
 | `.reset` | Clear your history and restore the default persona |
 | `.stock` | Clear your history and run without any system prompt |
 | `.mymodel [name]` | Show your current model, or set a per-user override |
+| `.location [place]` | Show, set, or clear your location (added to system prompt) |
 | `.help` | Show inline help (reads `help.md` if present) |
 
 ### Admin commands
@@ -69,6 +70,17 @@ Admins are set via `MATRIX_ADMINS` in `.env`.
 | `.tools [on\|off\|toggle\|status]` | Enable or disable hosted tools and MCP at runtime |
 | `.clear` | Reset history and defaults for all users |
 | `.verbose [on\|off\|toggle]` | Control whether the brevity clause is included in new conversations |
+
+## Conversation Persistence
+
+Conversation history can be encrypted and saved to disk so it survives restarts. Generate a key and add it to `.env`:
+
+```bash
+agent-smithers --generate-key
+# Paste the output into .env as HISTORY_ENCRYPTION_KEY
+```
+
+History is stored in `store/history.enc` alongside the Matrix device state. Without a key, history remains in-memory only (the default).
 
 ## Configuration
 

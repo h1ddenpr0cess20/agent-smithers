@@ -11,6 +11,7 @@ from .context import AppContext
 from .handlers.cmd_ai import handle_ai
 from .handlers.cmd_country import handle_country
 from .handlers.cmd_help import handle_help
+from .handlers.cmd_location import handle_location
 from .handlers.cmd_model import handle_model
 from .handlers.cmd_mymodel import handle_mymodel
 from .handlers.cmd_prompt import handle_custom, handle_persona
@@ -32,6 +33,7 @@ def build_router() -> Router:
     router.register(".reset", handle_reset)
     router.register(".stock", lambda c, r, s, d, _a: handle_reset(c, r, s, d, "stock"))
     router.register(".help", handle_help)
+    router.register(".location", handle_location)
     router.register(".mymodel", handle_mymodel)
     router.register(".tools", handle_tools, admin=True)
     router.register(".verbose", handle_verbose, admin=True)
