@@ -89,7 +89,7 @@ class LLMConfig:
     history_size: int = 24
     history_encryption_key: str = ""
     mcp_servers: Dict[str, Any] = field(default_factory=dict)
-    timeout: int = 180
+    timeout: int = 300
 
 
 @dataclass
