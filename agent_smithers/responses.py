@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import tempfile
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
@@ -242,8 +243,11 @@ async def send_response_artifacts(
                     mime_type="image/png",
                 )
             path = ctx._write_artifact(image_bytes, ".png")
-            await ctx.matrix.send_image(room_id=room_id, path=path, filename=None, log=ctx.log)
-            sent_any = True
+            try:
+                await ctx.matrix.send_image(room_id=room_id, path=path, filename=None, log=ctx.log)
+                sent_any = True
+            finally:
+                os.unlink(path)
         except Exception:
             ctx.logger.exception("Failed to send generated image")
     return sent_any
@@ -473,9 +477,12 @@ async def _send_base64_images(
             mime_type="image/png",
         )
         path = ctx._write_artifact(image_bytes, ".png")
-        if room_id:
-            await ctx.matrix.send_image(room_id=room_id, path=path, filename=None, log=ctx.log)
-            sent_any = True
+        try:
+            if room_id:
+                await ctx.matrix.send_image(room_id=room_id, path=path, filename=None, log=ctx.log)
+                sent_any = True
+        finally:
+            os.unlink(path)
     return sent_any
 
 
@@ -636,10 +643,13 @@ async def _execute_generate_video_call(
             status.update(f"Downloading video from {backend_label}")
             video_bytes = await ctx.llm.download_url(final_url, provider=provider)
     path = ctx._write_artifact(video_bytes, suffix)
-    if room_id:
-        await ctx.matrix.send_video(room_id=room_id, path=path, filename=None, log=ctx.log)
-        return "Video generated and sent."
-    return "Video generated."
+    try:
+        if room_id:
+            await ctx.matrix.send_video(room_id=room_id, path=path, filename=None, log=ctx.log)
+            return "Video generated and sent."
+        return "Video generated."
+    finally:
+        os.unlink(path)
 
 
 async def generate_reply(
