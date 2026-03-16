@@ -6,7 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "agent-smithers"
 version = "1.0.0"
 description = "Agent Smithers Matrix bot (modular)"
+license = "AGPL-3.0"
 requires-python = ">=3.10"
+keywords = ["matrix", "bot", "chatbot", "ai", "agent", "matrix-nio"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: GNU Affero General Public License v3",
+  "Programming Language :: Python :: 3",
+  "Topic :: Communications :: Chat",
+]
 dependencies = [
   "matrix-nio[e2e]",
   "httpx",
@@ -31,3 +39,8 @@ test = [
   "pytest",
   "pytest-asyncio",
 ]
+
+[project.urls]
+Homepage = "https://github.com/h1ddenpr0cess20/agent-smithers"
+Repository = "https://github.com/h1ddenpr0cess20/agent-smithers"
+Issues = "https://github.com/h1ddenpr0cess20/agent-smithers/issues"
