@@ -34,6 +34,9 @@ include-package-data = true
 include = ["agent_smithers*"]
 exclude = ["tests*", "store*", "no-e2e*"]
 
+[tool.setuptools.package-data]
+agent_smithers = [".env.example"]
+
 [project.optional-dependencies]
 test = [
   "pytest",
