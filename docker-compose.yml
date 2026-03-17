@@ -3,6 +3,7 @@ services:
     container_name: agent-smithers
     image: agent-smithers:latest
     user: "YOUR UID:YOUR GID"
+    network_mode: host
     volumes:
       - ./.env:/data/.env:ro
       - ./store:/data/store
