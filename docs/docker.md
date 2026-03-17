@@ -32,12 +32,12 @@ cp .env.example .env
 
 Edit `.env` and set your OpenAI key, Matrix credentials, rooms, and optional MCP settings.
 
-2) Run the container:
+2) Run the container with `--network host` so it can reach local services (e.g. LM Studio) on the host:
 
 ```bash
 docker run --rm -it \
   --name agent-smithers \
-  --add-host=host.docker.internal:host-gateway \
+  --network host \
   -v "$(pwd)/.env":/data/.env:ro \
   -v "$(pwd)/store":/data/store \
   -v "$(pwd)/images":/data/images \
@@ -46,9 +46,9 @@ docker run --rm -it \
 
 Notes:
 
+- `--network host` shares the host's network stack with the container, so `localhost` URLs (LM Studio, local MCP servers, etc.) work directly.
 - The bot does not expose ports; it connects out to Matrix, OpenAI, and any MCP servers you configure.
 - Persist `/data/store` to retain device keys for E2E rooms.
-- `--add-host=host.docker.internal:host-gateway` is required on Linux so the container can reach services on the host (e.g. LM Studio). On macOS and Windows, Docker Desktop provides this automatically.
 
 ## Run with Docker Compose
 
@@ -60,8 +60,7 @@ services:
     image: agent-smithers:latest
     user: "YOUR UID:YOUR GID"
     container_name: agent-smithers
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    network_mode: host
     volumes:
       - ./.env:/data/.env:ro
       - ./store:/data/store
