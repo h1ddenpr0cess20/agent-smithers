@@ -12,12 +12,8 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
 
 ## Common Variables
 
-- `OPENAI_API_KEY`
-  Required when you use any OpenAI model.
 - `XAI_API_KEY`
   Required when you use any xAI model.
-- `OPENAI_MODELS`
-  Comma-separated OpenAI model list used as startup fallback before server refresh.
 - `XAI_MODELS`
   Comma-separated xAI model list used as startup fallback before server refresh.
 - `DEFAULT_MODEL`
@@ -37,15 +33,15 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
 - `TOOLS_WEB_SEARCH`
   `true` or `false`.
 - `TOOLS_WEB_SEARCH_COUNTRY`
-  Optional ISO 3166-1 alpha-2 country code used for OpenAI `web_search` location biasing, for example `US`.
+  Optional ISO 3166-1 alpha-2 country code used for `web_search` location biasing, for example `US`.
 - `TOOLS_X_SEARCH`
   `true` or `false`. Used by xAI models.
 - `TOOLS_CODE_INTERPRETER`
   `true` or `false`.
 - `TOOLS_IMAGE_GENERATION`
-  `true` or `false`. Used by OpenAI hosted image generation and Grok Imagine local image tools when `XAI_API_KEY` is configured.
+  `true` or `false`. Used by Grok Imagine local image tools when `XAI_API_KEY` is configured.
 - `TOOLS_VIDEO_GENERATION`
-  `true` or `false`. Used by the local `generate_video` tool for OpenAI Sora and xAI Grok Imagine when the corresponding API keys are configured.
+  `true` or `false`. Used by the local `generate_video` tool for xAI Grok Imagine when `XAI_API_KEY` is configured.
 - `VIDEO_WHITELIST`
   Comma-separated Matrix user IDs or display names allowed to generate video. When set, only these users (plus admins) can trigger video generation. Leave empty to allow everyone. Admins configured in `MATRIX_ADMINS` are always allowed regardless of the whitelist. Can also be managed at runtime with the `.whitelist` admin command.
 - `MCP_SERVERS`
@@ -70,11 +66,9 @@ Agent Smithers now reads configuration from a `.env` file. By default it uses `.
 ## Example
 
 ```env
-OPENAI_API_KEY=sk-...
-XAI_API_KEY=
-OPENAI_MODELS=gpt-5-mini
+XAI_API_KEY=xai-...
 XAI_MODELS=grok-4
-DEFAULT_MODEL=gpt-5-mini
+DEFAULT_MODEL=grok-4-1-fast-non-reasoning
 SERVER_MODELS=true
 BOT_PERSONALITY=an AI that can assume any personality, named Agent Smithers
 BOT_PROMPT_PREFIX="assume the personality of "
@@ -104,10 +98,10 @@ MATRIX_E2E=true
 - `MCP_SERVERS` must be valid JSON.
 - `RESPONSES_OPTIONS` must be valid JSON.
 - Set the keys and model lists for the providers you want available at the same time.
-- `OPENAI_MODELS` or `XAI_MODELS` is still useful as fallback even when `SERVER_MODELS=true`.
-- `TOOLS_WEB_SEARCH_COUNTRY` is sent as a structured OpenAI `web_search.user_location.country` value. For xAI search tools, which do not currently document a country parameter, the bot adds a search-policy instruction so `x_search` and `web_search` still bias toward US sources.
+- `XAI_MODELS` is still useful as fallback even when `SERVER_MODELS=true`.
+- `TOOLS_WEB_SEARCH_COUNTRY` is applied as an xAI search-policy instruction so `x_search` and `web_search` bias toward the configured country's sources.
 - `TOOLS_WEB_SEARCH_COUNTRY` filtering is enabled by default when the variable is set, but can be toggled at runtime with the `.country` admin command.
-- `TOOLS_VIDEO_GENERATION` applies across OpenAI and xAI chat models; the tool backend is selected automatically or via the tool's `backend` argument.
+- `TOOLS_VIDEO_GENERATION` applies to xAI chat models via the Grok Imagine backend.
 - `VIDEO_WHITELIST` is enforced at tool execution time. The video tool definitions are still sent to the model so it can explain the restriction, but the actual API call is blocked for non-whitelisted users. Admins are always allowed.
 - `HISTORY_ENCRYPTION_KEY` must be a valid Fernet key (base64-encoded 32 bytes). Use `agent-smithers --generate-key` to create one.
 - When encrypted history is enabled, user locations set via `.location` are also persisted.

@@ -6,13 +6,13 @@ def test_cli_overrides():
     args = p.parse_args([
         "--env-file", ".env.test",
         "--log-level", "DEBUG",
-        "--model", "gpt-4o",
+        "--model", "grok-4",
         "--store-path", "st",
         "--e2e",
     ])
     assert args.env_file == ".env.test"
     assert args.log_level == "DEBUG"
-    assert args.model == "gpt-4o"
+    assert args.model == "grok-4"
     assert args.store_path == "st"
     assert args.e2e is True
 

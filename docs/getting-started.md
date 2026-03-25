@@ -1,12 +1,12 @@
 # Getting Started
 
-This guide gets you from zero to a running Matrix bot using the Responses API with OpenAI or xAI.
+This guide gets you from zero to a running Matrix bot using the Responses API with xAI or LM Studio.
 
 ## Prerequisites
 
 - Python 3.10+
 - A Matrix bot account
-- An OpenAI or xAI API key
+- An xAI API key (or LM Studio for local models)
 - Optional: access to remote MCP servers you want to expose
 
 ## Install
@@ -32,7 +32,7 @@ cp .env.example .env
 Edit `.env` and set:
 
 - `DEFAULT_MODEL`
-- `OPENAI_API_KEY` and/or `XAI_API_KEY`
+- `XAI_API_KEY`
 - `MATRIX_SERVER`
 - `MATRIX_USERNAME`
 - `MATRIX_PASSWORD`

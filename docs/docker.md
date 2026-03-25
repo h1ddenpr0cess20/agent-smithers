@@ -30,7 +30,7 @@ mkdir -p store
 cp .env.example .env
 ```
 
-Edit `.env` and set your OpenAI key, Matrix credentials, rooms, and optional MCP settings.
+Edit `.env` and set your xAI key, Matrix credentials, rooms, and optional MCP settings.
 
 2) Run the container with `--network host` so it can reach local services (e.g. LM Studio) on the host:
 
@@ -47,7 +47,7 @@ docker run --rm -it \
 Notes:
 
 - `--network host` shares the host's network stack with the container, so `localhost` URLs (LM Studio, local MCP servers, etc.) work directly.
-- The bot does not expose ports; it connects out to Matrix, OpenAI, and any MCP servers you configure.
+- The bot does not expose ports; it connects out to Matrix, xAI, and any MCP servers you configure.
 - Persist `/data/store` to retain device keys for E2E rooms.
 
 ## Run with Docker Compose
@@ -73,7 +73,7 @@ Ensure your `store/` directory is writable by the container user.
 ## Configuration
 
 - File: mount your `.env` at `/data/.env` (read‑only recommended).
-- The file should include `OPENAI_API_KEY`, Matrix settings, and any optional MCP/tool flags.
+- The file should include `XAI_API_KEY`, Matrix settings, and any optional MCP/tool flags.
 
 See [Configuration](configuration.md) for the full schema and validation rules.
 

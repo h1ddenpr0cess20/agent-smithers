@@ -268,7 +268,7 @@ class AppContext:
                 "If the user asks to edit, vary, or animate the most recently generated image in this thread, "
                 "call the relevant tool without requiring an explicit image URL; the runtime will supply it."
             )
-        if video_ref and provider != "openai":
+        if video_ref:
             notes.append(
                 "If the user asks to edit the most recently generated video in this thread, "
                 "call the video tool without requiring an explicit video URL; the runtime will supply it."
