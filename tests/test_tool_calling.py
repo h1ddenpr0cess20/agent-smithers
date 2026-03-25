@@ -22,20 +22,14 @@ class FakeLLM:
                     }
                 ],
             }
-        assert "previous_response_id" not in payload
+        assert payload["previous_response_id"] == "resp_1"
         assert payload["input_items"] == [
-            {
-                "id": "approve_1",
-                "type": "mcp_approval_request",
-                "server_label": "deepwiki",
-            },
             {
                 "type": "mcp_approval_response",
                 "approval_request_id": "approve_1",
                 "approve": True,
             }
         ]
-        assert payload["instructions"] == "you are p."
         return {
             "id": "resp_2",
             "output": [
@@ -99,9 +93,9 @@ class RecordingStatus:
 def test_mcp_auto_approval_loop_completes():
     cfg = AppConfig(
         llm=LLMConfig(
-            models={"openai": ["gpt-5-mini"]},
-            api_keys={"openai": "X"},
-            default_model="gpt-5-mini",
+            models={"xai": ["grok-4"]},
+            api_keys={"xai": "X"},
+            default_model="grok-4",
             personality="p",
             prompt=["you are ", "."],
             mcp_servers={
@@ -126,9 +120,9 @@ def test_mcp_auto_approval_loop_completes():
 def _ctx():
     cfg = AppConfig(
         llm=LLMConfig(
-            models={"openai": ["gpt-5-mini"]},
-            api_keys={"openai": "X"},
-            default_model="gpt-5-mini",
+            models={"xai": ["grok-4"]},
+            api_keys={"xai": "X"},
+            default_model="grok-4",
             personality="p",
             prompt=["you are ", "."],
         ),
@@ -150,7 +144,7 @@ def test_send_response_artifacts_handles_inline_image_payload():
                 }
             ]
         }
-        sent = asyncio.run(ctx._send_response_artifacts(response, "!r", provider="openai"))
+        sent = asyncio.run(ctx._send_response_artifacts(response, "!r", provider="xai"))
         assert sent is True
         assert len(ctx.matrix.sent_images) == 1
     finally:
@@ -161,7 +155,7 @@ def test_send_response_artifacts_handles_file_backed_image_payload():
     ctx = _ctx()
     try:
         async def fake_download_image_bytes(*, provider, file_id, container_id):
-            assert provider == "openai"
+            assert provider == "xai"
             assert file_id == "file_123"
             assert container_id == "container_123"
             return b"pngbytes"
@@ -176,7 +170,7 @@ def test_send_response_artifacts_handles_file_backed_image_payload():
                 }
             ]
         }
-        sent = asyncio.run(ctx._send_response_artifacts(response, "!r", provider="openai"))
+        sent = asyncio.run(ctx._send_response_artifacts(response, "!r", provider="xai"))
         assert sent is True
         assert len(ctx.matrix.sent_images) == 1
     finally:
@@ -196,68 +190,21 @@ def test_generate_reply_uses_spinner_status_while_waiting_for_model_response():
             )
         )
         assert out == "ok"
-        assert ("enter", "Generating reply with gpt-5-mini") in events
+        assert ("enter", "Generating reply with grok-4") in events
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
-def test_generate_video_call_updates_spinner_status():
-    class FakeVideoLLM:
-        async def generate_video(self, **kwargs):
-            assert kwargs["backend"] == "sora"
-            kwargs["on_status"]("Generating video with Sora [queued]")
-            return {"id": "vid_123"}
 
-        async def download_video_content(self, video_id, *, provider):
-            assert video_id == "vid_123"
-            assert provider == "openai"
-            return b"video-bytes"
-
-    ctx = _ctx()
-    events = []
-    try:
-        ctx.llm = FakeVideoLLM()
-        ctx.status = lambda message, spinner="dots": RecordingStatus(message, events)
-        result = asyncio.run(
-            ctx._handle_generate_image_calls(
-                {
-                    "output": [
-                        {
-                            "type": "function_call",
-                            "name": "sora_generate_video",
-                            "call_id": "call_1",
-                            "arguments": '{"prompt":"animate this"}',
-                        }
-                    ]
-                },
-                model="gpt-5-mini",
-                room_id="!r",
-                thread_user="@user:test",
-            )
-        )
-        assert result == [
-            {
-                "type": "function_call_output",
-                "call_id": "call_1",
-                "output": "Video generated and sent.",
-            }
-        ]
-        assert ("enter", "Generating video with Sora") in events
-        assert ("update", "Generating video with Sora [queued]") in events
-        assert ("update", "Downloading video from Sora") in events
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
-
-
-def test_generate_reply_continues_openai_followup_after_local_tool_output():
-    class FakeOpenAIFollowupLLM:
+def test_generate_reply_continues_followup_after_local_tool_output():
+    class FakeFollowupLLM:
         def __init__(self):
             self.calls = 0
 
         async def create_response(self, **payload):
             self.calls += 1
             if self.calls == 1:
-                assert payload["model"] == "gpt-5-mini"
+                assert payload["model"] == "grok-4"
                 return {
                     "id": "resp_1",
                     "output": [
@@ -275,16 +222,8 @@ def test_generate_reply_continues_openai_followup_after_local_tool_output():
                     ],
                 }
             if self.calls == 2:
-                assert "previous_response_id" not in payload
+                assert payload["previous_response_id"] == "resp_1"
                 assert payload["input_items"] == [
-                    {"role": "user", "content": "make me a cat"},
-                    {"id": "rs_1", "type": "reasoning", "summary": []},
-                    {
-                        "type": "function_call",
-                        "name": "grok_generate_image",
-                        "call_id": "call_img",
-                        "arguments": '{"prompt":"draw a cat"}',
-                    },
                     {
                         "type": "function_call_output",
                         "call_id": "call_img",
@@ -301,26 +240,8 @@ def test_generate_reply_continues_openai_followup_after_local_tool_output():
                         }
                     ],
                 }
-            assert "previous_response_id" not in payload
+            assert payload["previous_response_id"] == "resp_2"
             assert payload["input_items"] == [
-                {"role": "user", "content": "make me a cat"},
-                {"id": "rs_1", "type": "reasoning", "summary": []},
-                {
-                    "type": "function_call",
-                    "name": "grok_generate_image",
-                    "call_id": "call_img",
-                    "arguments": '{"prompt":"draw a cat"}',
-                },
-                {
-                    "type": "function_call_output",
-                    "call_id": "call_img",
-                    "output": "Image generated and sent.",
-                },
-                {
-                    "id": "approve_1",
-                    "type": "mcp_approval_request",
-                    "server_label": "deepwiki",
-                },
                 {
                     "type": "mcp_approval_response",
                     "approval_request_id": "approve_1",
@@ -347,12 +268,12 @@ def test_generate_reply_continues_openai_followup_after_local_tool_output():
 
     ctx = _ctx()
     try:
-        ctx.llm = FakeOpenAIFollowupLLM()
+        ctx.llm = FakeFollowupLLM()
         ctx._mcp_auto_approve = {"deepwiki"}
         out = asyncio.run(
             ctx.generate_reply(
                 [{"role": "user", "content": "make me a cat"}],
-                model="gpt-5-mini",
+                model="grok-4",
                 room_id="!r",
                 use_tools=True,
             )
@@ -437,45 +358,6 @@ def test_xai_hosted_tools_include_x_search_and_map_mcp_fields():
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
-
-def test_dual_provider_tool_sets_follow_selected_model():
-    cfg = AppConfig(
-        llm=LLMConfig(
-            models={"openai": ["gpt-5-mini"], "xai": ["grok-4"]},
-            api_keys={"openai": "O", "xai": "X"},
-            default_model="gpt-5-mini",
-            personality="p",
-            prompt=["you are ", "."],
-            tools={
-                "web_search": True,
-                "x_search": True,
-                "code_interpreter": True,
-                "image_generation": True,
-            },
-            web_search_country="US",
-        ),
-        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
-    )
-    ctx = AppContext(cfg)
-    try:
-        openai_tools = ctx._tools_for_model("gpt-5-mini")
-        xai_tools = ctx._tools_for_model("grok-4")
-        assert {"type": "image_generation"} in openai_tools
-        assert {tool["name"] for tool in openai_tools if tool["type"] == "function"} == {
-            "grok_generate_image",
-            "grok_edit_image",
-            "grok_generate_video",
-            "sora_generate_video",
-        }
-        assert {"type": "x_search"} not in openai_tools
-        assert {"type": "x_search"} in xai_tools
-        assert {"type": "image_generation"} not in xai_tools
-        openai_web_search = next(tool for tool in openai_tools if tool["type"] == "web_search")
-        xai_web_search = next(tool for tool in xai_tools if tool["type"] == "web_search")
-        assert openai_web_search["user_location"] == {"type": "approximate", "country": "US"}
-        assert xai_web_search == {"type": "web_search"}
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
 def test_xai_non_grok4_models_do_not_get_hosted_tools_or_mcp():
@@ -619,27 +501,6 @@ def test_apply_search_country_policy_no_country_returns_unmodified():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
-def test_apply_search_country_policy_non_xai_returns_unmodified():
-    cfg = AppConfig(
-        llm=LLMConfig(
-            models={"openai": ["gpt-5-mini"]},
-            api_keys={"openai": "X"},
-            default_model="gpt-5-mini",
-            personality="p",
-            prompt=["you are ", "."],
-            web_search_country="US",
-        ),
-        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
-    )
-    ctx = AppContext(cfg)
-    try:
-        messages = [{"role": "user", "content": "hi"}]
-        result = ctx._apply_search_country_policy(messages, provider="openai", tools=[{"type": "web_search"}])
-        assert len(result) == 1
-        assert result[0]["content"] == "hi"
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
-
 
 def test_apply_search_country_policy_no_search_tools_returns_unmodified():
     cfg = AppConfig(
@@ -736,33 +597,6 @@ def test_apply_search_country_policy_skipped_when_toggle_disabled():
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
-
-def test_tools_for_model_strips_user_location_when_toggle_disabled():
-    cfg = AppConfig(
-        llm=LLMConfig(
-            models={"openai": ["gpt-5-mini"]},
-            api_keys={"openai": "X"},
-            default_model="gpt-5-mini",
-            personality="p",
-            prompt=["you are ", "."],
-            web_search_country="US",
-        ),
-        matrix=MatrixConfig(server="s", username="u", password="p", channels=["!r"], admins=[]),
-    )
-    ctx = AppContext(cfg)
-    try:
-        # With toggle on, user_location should be present
-        tools_on = ctx._tools_for_model("gpt-5-mini")
-        ws_on = [t for t in tools_on if t.get("type") == "web_search"]
-        assert ws_on and "user_location" in ws_on[0]
-
-        # With toggle off, user_location should be stripped
-        ctx.search_country_enabled = False
-        tools_off = ctx._tools_for_model("gpt-5-mini")
-        ws_off = [t for t in tools_off if t.get("type") == "web_search"]
-        assert ws_off and "user_location" not in ws_off[0]
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
 # --- _walk_image_results ---
@@ -1022,7 +856,7 @@ def test_extract_text_empty_response():
 def test_build_hosted_tool_returns_none_for_false():
     ctx = _ctx()
     try:
-        result = ctx._build_hosted_tool("openai", "web_search", False)
+        result = ctx._build_hosted_tool("xai", "web_search", False)
         assert result is None
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
@@ -1031,7 +865,7 @@ def test_build_hosted_tool_returns_none_for_false():
 def test_build_hosted_tool_returns_none_for_none():
     ctx = _ctx()
     try:
-        result = ctx._build_hosted_tool("openai", "web_search", None)
+        result = ctx._build_hosted_tool("xai", "web_search", None)
         assert result is None
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
@@ -1040,7 +874,7 @@ def test_build_hosted_tool_returns_none_for_none():
 def test_build_hosted_tool_invalid_spec_type_returns_none():
     ctx = _ctx()
     try:
-        result = ctx._build_hosted_tool("openai", "web_search", 42)
+        result = ctx._build_hosted_tool("xai", "web_search", 42)
         assert result is None
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
@@ -1049,21 +883,12 @@ def test_build_hosted_tool_invalid_spec_type_returns_none():
 def test_build_hosted_tool_dict_spec_merges():
     ctx = _ctx()
     try:
-        result = ctx._build_hosted_tool("openai", "web_search", {"search_context_size": "high"})
+        result = ctx._build_hosted_tool("xai", "web_search", {"search_context_size": "high"})
         assert result["type"] == "web_search"
         assert result["search_context_size"] == "high"
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
-
-def test_build_hosted_tool_code_interpreter_adds_container_for_openai():
-    ctx = _ctx()
-    try:
-        result = ctx._build_hosted_tool("openai", "code_interpreter", True)
-        assert result["type"] == "code_interpreter"
-        assert result["container"] == {"type": "auto"}
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
 def test_build_hosted_tool_code_interpreter_no_container_for_xai():
@@ -1115,7 +940,7 @@ def test_xai_video_generation_tool_can_be_disabled():
 def test_build_mcp_tool_invalid_spec_returns_none():
     ctx = _ctx()
     try:
-        result = ctx._build_mcp_tool("openai", "test", "not a dict")
+        result = ctx._build_mcp_tool("xai", "test", "not a dict")
         assert result is None
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
@@ -1124,7 +949,7 @@ def test_build_mcp_tool_invalid_spec_returns_none():
 def test_build_mcp_tool_missing_server_url_and_connector_returns_none():
     ctx = _ctx()
     try:
-        result = ctx._build_mcp_tool("openai", "test", {"server_description": "desc"})
+        result = ctx._build_mcp_tool("xai", "test", {"server_description": "desc"})
         assert result is None
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
@@ -1135,7 +960,7 @@ def test_build_mcp_tool_authorization_env(monkeypatch):
     monkeypatch.setenv("MY_MCP_TOKEN", "secret123")
     ctx = _ctx()
     try:
-        result = ctx._build_mcp_tool("openai", "test", {
+        result = ctx._build_mcp_tool("xai", "test", {
             "server_url": "https://mcp.example.com",
             "authorization_env": "MY_MCP_TOKEN",
         })
@@ -1149,7 +974,7 @@ def test_build_mcp_tool_authorization_env_missing_env_var(monkeypatch):
     monkeypatch.delenv("MY_MCP_TOKEN", raising=False)
     ctx = _ctx()
     try:
-        result = ctx._build_mcp_tool("openai", "test", {
+        result = ctx._build_mcp_tool("xai", "test", {
             "server_url": "https://mcp.example.com",
             "authorization_env": "MY_MCP_TOKEN",
         })
@@ -1163,24 +988,12 @@ def test_build_mcp_tool_explicit_authorization_takes_precedence(monkeypatch):
     monkeypatch.setenv("MY_MCP_TOKEN", "secret123")
     ctx = _ctx()
     try:
-        result = ctx._build_mcp_tool("openai", "test", {
+        result = ctx._build_mcp_tool("xai", "test", {
             "server_url": "https://mcp.example.com",
             "authorization": "Bearer explicit",
             "authorization_env": "MY_MCP_TOKEN",
         })
         assert result["authorization"] == "Bearer explicit"
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
-
-
-def test_build_mcp_tool_with_connector_id():
-    ctx = _ctx()
-    try:
-        result = ctx._build_mcp_tool("openai", "test", {
-            "connector_id": "conn_123",
-        })
-        assert result is not None
-        assert result["connector_id"] == "conn_123"
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
@@ -1208,7 +1021,7 @@ def test_iter_image_sources_propagates_container_id_to_walk_results():
 def test_send_response_artifacts_returns_false_when_no_room_id():
     ctx = _ctx()
     try:
-        sent = asyncio.run(ctx._send_response_artifacts({"output": []}, None, provider="openai"))
+        sent = asyncio.run(ctx._send_response_artifacts({"output": []}, None, provider="xai"))
         assert sent is False
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
@@ -1326,94 +1139,6 @@ def test_handle_generate_image_calls_supports_grok_generate_video():
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
 
-def test_handle_generate_image_calls_supports_sora_generate_video():
-    ctx = _ctx()
-    try:
-        class FakeMediaLLM:
-            async def generate_video(self, **payload):
-                assert payload["prompt"] == "animate this logo"
-                assert payload["image_url"] == "data:image/png;base64,c291cmNl"
-                assert payload["seconds"] == 8
-                assert payload["size"] == "1280x720"
-                assert payload["backend"] == "sora"
-                return {"id": "vid_openai"}
-
-            async def download_video_content(self, video_id, *, provider):
-                assert video_id == "vid_openai"
-                assert provider == "openai"
-                return b"openai-video"
-
-        ctx.llm = FakeMediaLLM()
-        ctx._remember_generated_media(
-            "!r",
-            "@u",
-            kind="image",
-            reference="data:image/png;base64,c291cmNl",
-            mime_type="image/png",
-        )
-        response = {
-            "output": [
-                {
-                    "type": "function_call",
-                    "name": "sora_generate_video",
-                    "call_id": "call_openai_video",
-                    "arguments": '{"prompt":"animate this logo","seconds":8,"size":"1280x720"}',
-                }
-            ]
-        }
-        output_items = asyncio.run(
-            ctx._handle_generate_image_calls(response, model="gpt-5-mini", room_id="!r", thread_user="@u")
-        )
-        assert output_items == [
-            {
-                "type": "function_call_output",
-                "call_id": "call_openai_video",
-                "output": "Video generated and sent.",
-            }
-        ]
-        assert len(ctx.matrix.sent_videos) == 1
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
-
-
-def test_handle_generate_image_calls_supports_sora_generate_video_from_xai_model():
-    ctx = _ctx()
-    try:
-        class FakeMediaLLM:
-            async def generate_video(self, **payload):
-                assert payload["backend"] == "sora"
-                assert payload["model"] == "grok-4"
-                return {"id": "vid_cross_provider"}
-
-            async def download_video_content(self, video_id, *, provider):
-                assert video_id == "vid_cross_provider"
-                assert provider == "openai"
-                return b"openai-video"
-
-        ctx.llm = FakeMediaLLM()
-        response = {
-            "output": [
-                {
-                    "type": "function_call",
-                    "name": "sora_generate_video",
-                    "call_id": "call_sora_backend",
-                    "arguments": '{"prompt":"turn this into a product video","image_url":"data:image/png;base64,c291cmNl","seconds":4,"size":"1280x720"}',
-                }
-            ]
-        }
-        output_items = asyncio.run(
-            ctx._handle_generate_image_calls(response, model="grok-4", room_id="!r", thread_user="@u")
-        )
-        assert output_items == [
-            {
-                "type": "function_call_output",
-                "call_id": "call_sora_backend",
-                "output": "Video generated and sent.",
-            }
-        ]
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
-
 
 def test_generate_reply_adds_media_context_note_for_thread():
     cfg = AppConfig(
@@ -1496,13 +1221,13 @@ def test_should_auto_approve_returns_false_for_unknown_label():
 # --- _configured_providers ---
 
 def test_configured_providers_excludes_unconfigured():
-    """Only providers with API keys (openai/xai) or base_urls (lmstudio) are returned."""
+    """Only providers with API keys (xai) or base_urls (lmstudio) are returned."""
     cfg = AppConfig(
         llm=LLMConfig(
-            models={"openai": ["gpt-5-mini"], "xai": [], "lmstudio": []},
-            api_keys={"openai": "X", "xai": ""},
+            models={"xai": ["grok-4"], "lmstudio": []},
+            api_keys={"xai": "X"},
             base_urls={"lmstudio": ""},
-            default_model="gpt-5-mini",
+            default_model="grok-4",
             personality="p",
             prompt=["you are ", "."],
         ),
@@ -1511,8 +1236,7 @@ def test_configured_providers_excludes_unconfigured():
     ctx = AppContext(cfg)
     try:
         providers = ctx._configured_providers()
-        assert "openai" in providers
-        assert "xai" not in providers
+        assert "xai" in providers
         assert "lmstudio" not in providers
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)

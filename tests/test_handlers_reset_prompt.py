@@ -9,8 +9,8 @@ class Ctx:
         # Mirror reference prompt handling
         self.history = HistoryStore(prompt_prefix="you are ", prompt_suffix=".", personality="helper", max_items=8)
         self.bot_id = "Bot"
-        self.model = "gpt-4o"
-        self.default_model = "gpt-4o"
+        self.model = "grok-4"
+        self.default_model = "grok-4"
         self.personality = "helper"
         self.default_personality = "helper"
         self._sent = []
@@ -70,14 +70,14 @@ def test_clear_resets_all_and_restores_defaults():
     """handle_clear should clear all history and reset model/personality."""
     from agent_smithers.handlers.cmd_reset import handle_clear
     ctx = Ctx()
-    ctx.model = "gpt-4o-mini"
-    ctx.default_model = "gpt-4o"
+    ctx.model = "grok-4-mini"
+    ctx.default_model = "grok-4"
     ctx.personality = "custom-persona"
     ctx.default_personality = "helper"
     ctx.history.add("!r1", "@u1", "user", "a")
     ctx.history.add("!r2", "@u2", "user", "b")
     asyncio.run(handle_clear(ctx, "!r", "@admin", "Admin", ""))
     assert ctx.history.messages == {}
-    assert ctx.model == "gpt-4o"
+    assert ctx.model == "grok-4"
     assert ctx.personality == "helper"
     assert any("reset for everyone" in body for body in ctx._sent)

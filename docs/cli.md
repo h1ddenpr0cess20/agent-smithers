@@ -31,7 +31,7 @@ agent-smithers --env-file .env
 
 ```bash
 agent-smithers --env-file .env
-agent-smithers --env-file .env --model gpt-5-mini
+agent-smithers --env-file .env --model grok-4
 agent-smithers --generate-key
 AGENT_SMITHERS_LOG_LEVEL=DEBUG agent-smithers --env-file .env
 python -m agent_smithers --env-file .env

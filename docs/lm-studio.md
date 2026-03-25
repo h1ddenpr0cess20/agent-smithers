@@ -1,6 +1,6 @@
 # LM Studio Setup
 
-Agent Smithers supports local models served by [LM Studio](https://lmstudio.ai) via its OpenAI-compatible local server.
+Agent Smithers supports local models served by [LM Studio](https://lmstudio.ai) via its compatible local server.
 
 ## Prerequisites
 
@@ -32,4 +32,4 @@ Make sure LM Studio's local server is bound to `0.0.0.0` (not just `127.0.0.1`) 
 - LM Studio does not support hosted tools (web search, code interpreter, image generation, or MCP). Tool calling is disabled automatically for LMStudio models.
 - The bot requires at least one non-empty `user` message in the conversation. A fallback user message is injected automatically if the history contains only a system prompt, which can happen on persona or custom prompt initialization.
 - Reasoning model output tags (`<think>`, `<|begin_of_thought|>`) are stripped from responses before they are sent to the room.
-- You can run LM Studio alongside OpenAI or xAI — set `DEFAULT_MODEL` to a model from whichever provider you want as the primary, and users can switch with `.mymodel`.
+- You can run LM Studio alongside xAI — set `DEFAULT_MODEL` to a model from whichever provider you want as the primary, and users can switch with `.mymodel`.
