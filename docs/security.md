@@ -16,7 +16,7 @@ chmod 600 .env
 The bot needs outbound access to:
 
 - Your Matrix homeserver
-- OpenAI API endpoints
+- xAI API endpoints
 - Any remote MCP servers you configure
 
 ## Tool Risk

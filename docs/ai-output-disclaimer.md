@@ -6,20 +6,20 @@ This document explains the limits of responsibility for the Agent Smithers Matri
 
 ## 1) Purpose and Scope
 
-- Clarifies that chat responses come from OpenAI models and any tools/MCP endpoints you enable.
+- Clarifies that chat responses come from xAI models and any tools/MCP endpoints you enable.
 - Allocates responsibility for use and consequences to you and to those external services, not to the App author(s).
 - Sets conditions of use. If you disagree, do not use the App.
 
 ## 2) Definitions
 
 - "App": This Matrix chatbot and accompanying materials.
-- "Models/Services": OpenAI models plus any external services you enable through hosted tools or MCP.
+- "Models/Services": xAI models plus any external services you enable through hosted tools or MCP.
 - "Outputs": Any text, images, or actions generated or triggered by the models.
 - "You": Any user, administrator, or organization using or distributing the App.
 
 ## 3) Nature of the Service
 
-- The App helps compose and send prompts to OpenAI models you select and configure.
+- The App helps compose and send prompts to xAI models you select and configure.
 - You supply and control your own deployment settings.
 - The App may include prompt templates; it does not create, host, or operate the underlying models or remote MCP services.
 - Any defects, harms, or errors attributable to model or tool behavior are the responsibility of those services and of the users who choose to act on Outputs.
@@ -58,14 +58,14 @@ Risks may include, without limitation:
 - Defamation and reputational harm: Models can produce false or defamatory statements. Independently verify facts before sharing.
 - Professional error: Outputs may be inaccurate or incomplete for specialized domains. Consult qualified professionals.
 - Safety‑critical errors: Do not use for emergency response, life‑support, or contexts where errors could cause injury, death, or significant damage.
-- Privacy and data security: Prompts/Outputs may be logged by OpenAI, MCP services, or Matrix homeservers. Avoid sharing secrets; review their policies.
+- Privacy and data security: Prompts/Outputs may be logged by xAI, MCP services, or Matrix homeservers. Avoid sharing secrets; review their policies.
 - Intellectual property: Outputs may resemble copyrighted or proprietary content. Ensure you have rights before using or distributing.
 - Bias/offensive content: Models may produce biased or harmful content. Apply your standards and filters.
 - Tool/automation: If you enable tool actions, validate inputs/outputs and accept responsibility for results.
 
 ## 9) Third‑Party Terms and Data Handling
 
-- Your use of OpenAI or any MCP service is subject to that service's terms, policies, and rate limits.
+- Your use of xAI or any MCP service is subject to that service's terms, policies, and rate limits.
 - The App does not control external service or homeserver logging, retention, or data usage.
 
 ## 10) Prohibited Uses

@@ -6,8 +6,6 @@ from typing import Any
 def _provider_label(provider: str) -> str:
     if provider == "xai":
         return "xAI"
-    if provider == "openai":
-        return "OpenAI"
     return provider
 
 

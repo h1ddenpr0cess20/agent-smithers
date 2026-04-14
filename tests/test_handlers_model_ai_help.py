@@ -17,9 +17,9 @@ class FakeMatrix:
 
 def test_handle_model_show_set_reset():
     ctx = SimpleNamespace(
-        model="gpt-4o",
-        default_model="gpt-4o",
-        models={"openai": ["gpt-4o", "gpt-4o-mini"], "xai": ["grok-4"]},
+        model="grok-4",
+        default_model="grok-4",
+        models={"xai": ["grok-4", "grok-4-mini"]},
         render=lambda s: None,
         matrix=FakeMatrix(),
         log=lambda *a, **k: None,
@@ -27,10 +27,9 @@ def test_handle_model_show_set_reset():
     asyncio.run(handle_model(ctx, "!r", "@u", "Admin", ""))
     sent_body = ctx.matrix.sent[-1][1]
     assert "Current model" in sent_body
-    assert "**OpenAI**: gpt-4o, gpt-4o-mini" in sent_body
-    assert "**xAI**: grok-4" in sent_body
-    asyncio.run(handle_model(ctx, "!r", "@u", "Admin", "gpt-4o-mini"))
-    assert ctx.model == "gpt-4o-mini"
+    assert "**xAI**: grok-4, grok-4-mini" in sent_body
+    asyncio.run(handle_model(ctx, "!r", "@u", "Admin", "grok-4-mini"))
+    assert ctx.model == "grok-4-mini"
     asyncio.run(handle_model(ctx, "!r", "@u", "Admin", "reset"))
     assert ctx.model == ctx.default_model
 
@@ -46,7 +45,7 @@ def test_handle_ai_strips_think_markers_and_trims():
         history=HistoryStore("you are ", ".", "helper", max_items=8),
         matrix=FakeMatrix(),
         render=lambda s: None,
-        model="gpt-4o",
+        model="grok-4",
         generate_reply=generate_reply,
         clean_response_text=lambda text, sender_display, sender_id: text.replace("<think>plan</think>", "").strip(),
         log=lambda *a, **k: None,
@@ -61,17 +60,17 @@ def test_handle_ai_strips_think_markers_and_trims():
 def test_handle_model_set_unknown_model_keeps_current():
     """Setting an unknown model should not change ctx.model."""
     ctx = SimpleNamespace(
-        model="gpt-4o",
-        default_model="gpt-4o",
-        models={"openai": ["gpt-4o", "gpt-4o-mini"]},
+        model="grok-4",
+        default_model="grok-4",
+        models={"xai": ["grok-4", "grok-4-mini"]},
         render=lambda s: None,
         matrix=FakeMatrix(),
         log=lambda *a, **k: None,
     )
     asyncio.run(handle_model(ctx, "!r", "@u", "Admin", "nonexistent-model"))
-    assert ctx.model == "gpt-4o"  # unchanged
+    assert ctx.model == "grok-4"  # unchanged
     body = ctx.matrix.sent[-1][1]
-    assert "gpt-4o" in body  # shows current model in response
+    assert "grok-4" in body  # shows current model in response
 
 
 def test_handle_ai_with_empty_args_no_user_message_added():
@@ -84,7 +83,7 @@ def test_handle_ai_with_empty_args_no_user_message_added():
         history=HistoryStore("you are ", ".", "helper", max_items=8),
         matrix=FakeMatrix(),
         render=lambda s: None,
-        model="gpt-4o",
+        model="grok-4",
         generate_reply=generate_reply,
         clean_response_text=lambda text, sender_display, sender_id: text.strip(),
         log=lambda *a, **k: None,
@@ -106,7 +105,7 @@ def test_handle_ai_error_sends_error_message():
         history=HistoryStore("you are ", ".", "helper", max_items=8),
         matrix=FakeMatrix(),
         render=lambda s: None,
-        model="gpt-4o",
+        model="grok-4",
         generate_reply=generate_reply,
         clean_response_text=lambda text, sender_display, sender_id: text.strip(),
         log=lambda *a, **k: None,
