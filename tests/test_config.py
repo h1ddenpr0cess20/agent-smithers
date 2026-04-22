@@ -23,9 +23,9 @@ def test_load_config_and_validate(tmp_path: Path):
     p.write_text(
         "\n".join(
             [
-                "XAI_API_KEY=X",
-                "XAI_MODELS=grok-4-1-fast-non-reasoning,grok-4",
-                "DEFAULT_MODEL=grok-4-1-fast-non-reasoning",
+                "OPENAI_API_KEY=X",
+                "OPENAI_MODELS=gpt-4o,gpt-4o-mini",
+                "DEFAULT_MODEL=gpt-4o",
                 "BOT_PERSONALITY=helper",
                 "BOT_PROMPT_PREFIX=you are ",
                 "BOT_PROMPT_SUFFIX=.",
@@ -41,12 +41,12 @@ def test_load_config_and_validate(tmp_path: Path):
     cfg = load_config(str(p))
     ok, errs = validate_config(cfg)
     assert ok and not errs
-    assert cfg.llm.models["xai"] == ["grok-4-1-fast-non-reasoning", "grok-4"]
+    assert cfg.llm.models["openai"] == ["gpt-4o", "gpt-4o-mini"]
     assert cfg.matrix.channels == ["!r:example.org"]
 
 
 def test_validate_config_default_model_missing():
-    llm = LLMConfig(models={"xai": []}, api_keys={}, default_model="x", personality="p", prompt=["you are ", "."])
+    llm = LLMConfig(models={"openai": []}, api_keys={}, default_model="x", personality="p", prompt=["you are ", "."])
     matrix = MatrixConfig(server="s", username="u", password="p", channels=["!r"], admin="a")
     cfg = AppConfig(llm=llm, matrix=matrix)
     ok, errs = validate_config(cfg)
@@ -103,9 +103,9 @@ def test_load_config_reads_web_search_country(tmp_path: Path):
     p.write_text(
         "\n".join(
             [
-                "XAI_API_KEY=X",
-                "XAI_MODELS=grok-4",
-                "DEFAULT_MODEL=grok-4",
+                "OPENAI_API_KEY=X",
+                "OPENAI_MODELS=gpt-5-mini",
+                "DEFAULT_MODEL=gpt-5-mini",
                 "TOOLS_WEB_SEARCH_COUNTRY=us",
                 "MATRIX_SERVER=https://example.org",
                 "MATRIX_USERNAME=@bot:example.org",
@@ -123,10 +123,10 @@ def test_load_config_supports_both_providers(tmp_path: Path):
     p.write_text(
         "\n".join(
             [
+                "OPENAI_API_KEY=O",
                 "XAI_API_KEY=X",
-                "LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1",
+                "OPENAI_MODELS=gpt-5-mini",
                 "XAI_MODELS=grok-4",
-                "LMSTUDIO_MODELS=local-model",
                 "DEFAULT_MODEL=grok-4",
                 "MATRIX_SERVER=https://example.org",
                 "MATRIX_USERNAME=@bot:example.org",
@@ -138,8 +138,8 @@ def test_load_config_supports_both_providers(tmp_path: Path):
     cfg = load_config(str(p))
     ok, errs = validate_config(cfg)
     assert ok and not errs
+    assert cfg.llm.models["openai"] == ["gpt-5-mini"]
     assert cfg.llm.models["xai"] == ["grok-4"]
-    assert cfg.llm.models["lmstudio"] == ["local-model"]
 
 
 def test_load_config_and_validate_lmstudio(tmp_path: Path):
@@ -167,25 +167,35 @@ def test_load_config_and_validate_lmstudio(tmp_path: Path):
 # --- provider_for_model edge cases ---
 
 def test_provider_for_model_returns_none_for_empty_string():
-    assert provider_for_model("", {"xai": ["grok-4"]}) is None
+    assert provider_for_model("", {"openai": ["gpt-4o"]}) is None
 
 
 def test_provider_for_model_returns_none_for_whitespace_only():
-    assert provider_for_model("   ", {"xai": ["grok-4"]}) is None
+    assert provider_for_model("   ", {"openai": ["gpt-4o"]}) is None
 
 
 def test_provider_for_model_matches_exact_model_in_list():
-    models = {"xai": ["grok-4"], "lmstudio": ["local-model"]}
+    models = {"openai": ["gpt-4o"], "xai": ["grok-4"]}
     assert provider_for_model("grok-4", models) == "xai"
-    assert provider_for_model("local-model", models) == "lmstudio"
+    assert provider_for_model("gpt-4o", models) == "openai"
 
 
 def test_provider_for_model_falls_back_to_prefix_heuristic_for_grok():
     assert provider_for_model("grok-99-turbo", {}) == "xai"
 
 
+def test_provider_for_model_falls_back_to_prefix_heuristic_for_gpt():
+    assert provider_for_model("gpt-99", {}) == "openai"
+
+
+def test_provider_for_model_falls_back_to_prefix_heuristic_for_o_models():
+    assert provider_for_model("o1-preview-future", {}) == "openai"
+    assert provider_for_model("o3-pro", {}) == "openai"
+    assert provider_for_model("o4-mini", {}) == "openai"
+
+
 def test_provider_for_model_returns_none_for_unknown_model():
-    assert provider_for_model("claude-3", {"xai": ["grok-4"]}) is None
+    assert provider_for_model("claude-3", {"openai": ["gpt-4o"]}) is None
 
 
 # --- _parse_bool ---
@@ -257,9 +267,9 @@ def test_load_env_file_strips_quotes_and_exports(tmp_path):
 
 def _base_llm(**overrides):
     defaults = dict(
-        models={"xai": ["grok-4"]},
-        api_keys={"xai": "X"},
-        default_model="grok-4",
+        models={"openai": ["gpt-4o"]},
+        api_keys={"openai": "X"},
+        default_model="gpt-4o",
         personality="p",
         prompt=["you are ", "."],
     )
@@ -279,6 +289,20 @@ def test_validate_no_providers_configured():
     ok, errs = validate_config(cfg)
     assert not ok
     assert any("At least one provider" in e for e in errs)
+
+
+def test_validate_openai_models_without_api_key():
+    llm = LLMConfig(
+        models={"openai": ["gpt-4o"]},
+        api_keys={"openai": ""},
+        default_model="gpt-4o",
+        personality="p",
+        prompt=["a"],
+    )
+    cfg = AppConfig(llm=llm, matrix=_base_matrix())
+    ok, errs = validate_config(cfg)
+    assert not ok
+    assert any("OPENAI_API_KEY" in e for e in errs)
 
 
 def test_validate_lmstudio_models_without_base_url():
@@ -333,8 +357,8 @@ def test_validate_mcp_not_dict():
 def test_validate_default_model_no_matching_provider():
     """DEFAULT_MODEL that doesn't match any configured provider should error."""
     llm = LLMConfig(
-        models={"xai": ["grok-4"]},
-        api_keys={"xai": "X"},
+        models={"openai": ["gpt-4o"]},
+        api_keys={"openai": "X"},
         default_model="claude-3",
         personality="p",
         prompt=["a"],
@@ -346,7 +370,7 @@ def test_validate_default_model_no_matching_provider():
 
 
 def test_validate_default_model_requires_api_key_for_provider():
-    """DEFAULT_MODEL for xai should require matching API key."""
+    """DEFAULT_MODEL for openai/xai should require matching API key."""
     llm = LLMConfig(
         models={"xai": ["grok-4"]},
         api_keys={"xai": ""},
@@ -415,7 +439,7 @@ def test_provider_for_model_case_insensitive_grok_prefix():
 
 def test_provider_for_model_none_input():
     """None-ish model input should return None."""
-    assert provider_for_model(None, {"xai": ["grok-4"]}) is None
+    assert provider_for_model(None, {"openai": ["gpt-4o"]}) is None
 
 
 def test_resolve_lmstudio_url_outside_docker():

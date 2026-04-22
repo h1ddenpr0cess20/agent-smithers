@@ -1,6 +1,6 @@
 # Agent Smithers Matrix Bot
 
-Agent Smithers is a Matrix chatbot built around the Responses API. It supports per-user histories, persona/custom prompts, provider-hosted tools, remote MCP servers, and admin model controls across xAI and LM Studio.
+Agent Smithers is a Matrix chatbot built around the Responses API. It supports per-user histories, persona/custom prompts, provider-hosted tools, remote MCP servers, and admin model controls across OpenAI and xAI.
 
 The name references Agent Smith from *The Matrix* and Smithers, Mr. Burns' assistant from *The Simpsons*.
 
@@ -9,9 +9,9 @@ The name references Agent Smith from *The Matrix* and Smithers, Mr. Burns' assis
 
 ## Highlights
 
-- xAI and LM Studio runtime support
+- OpenAI and xAI runtime support
 - Responses API instead of Chat Completions
-- Hosted tools: web search, code interpreter, `x_search` (xAI)
+- Hosted tools: web search, code interpreter, image generation (OpenAI), `x_search` (xAI)
 - Remote MCP support through provider-hosted MCP tools
 - `.env`-based configuration
 - Server-fetched provider model discovery
