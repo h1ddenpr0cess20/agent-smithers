@@ -1,13 +1,16 @@
 import asyncio
+import base64
+from io import BytesIO
 
+from PIL import Image
 from agent_smithers.config import AppConfig, LLMConfig, MatrixConfig
 from agent_smithers.llm_client import LLMClient
 
 
-def _cfg(default_model="grok-4"):
+def _cfg(default_model="gpt-5-mini"):
     llm = LLMConfig(
-        models={"xai": ["grok-4"]},
-        api_keys={"xai": "X"},
+        models={"openai": ["gpt-5-mini"], "xai": ["grok-4"]},
+        api_keys={"openai": "O", "xai": "X"},
         default_model=default_model,
         personality="p",
         prompt=["you are ", "."],
@@ -51,6 +54,14 @@ class RecordingAsyncClient:
         return self.responses.pop(0)
 
 
+def _png_data_uri(width=64, height=64, color=(255, 0, 0, 255)):
+    image = Image.new("RGBA", (width, height), color)
+    buf = BytesIO()
+    image.save(buf, format="PNG")
+    encoded = base64.b64encode(buf.getvalue()).decode()
+    return f"data:image/png;base64,{encoded}"
+
+
 def test_build_input_items_splits_system_messages():
     instructions, input_items = LLMClient.build_input_items(
         [
@@ -69,7 +80,7 @@ def test_build_input_items_splits_system_messages():
 def test_build_request_payload_uses_responses_shape():
     client = LLMClient(_cfg())
     payload = client.build_request_payload(
-        model="grok-4",
+        model="gpt-5-mini",
         messages=[
             {"role": "system", "content": "be concise"},
             {"role": "user", "content": "hello"},
@@ -77,12 +88,9 @@ def test_build_request_payload_uses_responses_shape():
         tools=[{"type": "web_search"}],
         options={"temperature": 0.2},
     )
-    assert payload["model"] == "grok-4"
-    assert "instructions" not in payload
-    assert payload["input"] == [
-        {"role": "system", "content": "be concise"},
-        {"role": "user", "content": "hello"},
-    ]
+    assert payload["model"] == "gpt-5-mini"
+    assert payload["instructions"] == "be concise"
+    assert payload["input"] == [{"role": "user", "content": "hello"}]
     assert payload["tools"] == [{"type": "web_search"}]
     assert payload["tool_choice"] == "auto"
     assert payload["temperature"] == 0.2
@@ -90,10 +98,25 @@ def test_build_request_payload_uses_responses_shape():
 
 def test_is_chat_model_filters_only_requested_variants():
     client = LLMClient(_cfg())
-    assert client._is_chat_model("xai", "grok-4") is True
-    assert client._is_chat_model("xai", "grok-3-mini") is True
-    assert client._is_chat_model("xai", "grok-imagine-image") is False
-    assert client._is_chat_model("xai", "grok-vision-beta") is False
+    allowed = [
+        "gpt-4o",
+        "gpt-5-mini",
+        "gpt-realtime",
+        "o3-pro",
+    ]
+    blocked = [
+        "gpt-4.1-2025-04-14",
+        "gpt-4o-audio-preview",
+        "computer-use-preview",
+        "gpt-4o-mini-transcribe",
+        "gpt-4-turbo-preview",
+        "gpt-4o-mini-tts",
+        "gpt-image-1",
+    ]
+    for model_id in allowed:
+        assert client._is_chat_model("openai", model_id) is True, model_id
+    for model_id in blocked:
+        assert client._is_chat_model("openai", model_id) is False, model_id
 
 
 def test_build_request_payload_keeps_system_messages_in_input_for_xai():
@@ -263,7 +286,7 @@ def test_build_input_items_ignores_unknown_roles():
 def test_build_request_payload_previous_response_id_suppresses_instructions():
     client = LLMClient(_cfg())
     payload = client.build_request_payload(
-        model="grok-4",
+        model="gpt-5-mini",
         messages=[
             {"role": "system", "content": "instructions here"},
             {"role": "user", "content": "hello"},
@@ -277,7 +300,7 @@ def test_build_request_payload_previous_response_id_suppresses_instructions():
 def test_build_request_payload_no_tools_omits_tool_keys():
     client = LLMClient(_cfg())
     payload = client.build_request_payload(
-        model="grok-4",
+        model="gpt-5-mini",
         messages=[{"role": "user", "content": "hello"}],
     )
     assert "tools" not in payload
@@ -287,7 +310,7 @@ def test_build_request_payload_no_tools_omits_tool_keys():
 def test_build_request_payload_with_input_items_instead_of_messages():
     client = LLMClient(_cfg())
     payload = client.build_request_payload(
-        model="grok-4",
+        model="gpt-5-mini",
         input_items=[
             {"type": "mcp_approval_response", "approve": True},
         ],
@@ -298,21 +321,20 @@ def test_build_request_payload_with_input_items_instead_of_messages():
 
 
 def test_build_request_payload_accepts_explicit_instructions_with_input_items():
-    # xAI does not support the instructions field; it is silently dropped.
     client = LLMClient(_cfg())
     payload = client.build_request_payload(
-        model="grok-4",
+        model="gpt-5-mini",
         input_items=[
             {"role": "user", "content": "hello"},
         ],
         instructions="be concise",
     )
-    assert "instructions" not in payload
+    assert payload["instructions"] == "be concise"
     assert payload["input"] == [{"role": "user", "content": "hello"}]
 
 
 def test_generate_video_reports_status_updates_during_polling(monkeypatch):
-    client = LLMClient(_cfg("grok-4"))
+    client = LLMClient(_cfg("gpt-5-mini"))
     client.VIDEO_POLL_INTERVAL_SECONDS = 0
     RecordingAsyncClient.responses = [
         FakeResponse({"id": "vid_1", "status": "queued"}),
@@ -326,24 +348,24 @@ def test_generate_video_reports_status_updates_during_polling(monkeypatch):
     result = asyncio.run(
         client.generate_video(
             prompt="hello",
-            model="grok-4",
-            backend="grok",
+            model="gpt-5-mini",
+            backend="sora",
             on_status=status_updates.append,
         )
     )
 
     assert result["id"] == "vid_1"
     assert status_updates == [
-        "Generating video with Grok [queued]",
-        "Generating video with Grok [processing]",
-        "Generating video with Grok [completed]",
+        "Generating video with Sora [queued]",
+        "Generating video with Sora [processing]",
+        "Generating video with Sora [completed]",
     ]
 
 
 def test_build_request_payload_options_none_values_omitted():
     client = LLMClient(_cfg())
     payload = client.build_request_payload(
-        model="grok-4",
+        model="gpt-5-mini",
         messages=[{"role": "user", "content": "hi"}],
         options={"temperature": 0.5, "top_p": None},
     )
@@ -352,6 +374,15 @@ def test_build_request_payload_options_none_values_omitted():
 
 
 # --- _is_chat_model edge cases ---
+
+def test_is_chat_model_openai_date_suffix_blocked():
+    assert LLMClient._is_chat_model("openai", "gpt-4.1-2025-04-14") is False
+
+
+def test_is_chat_model_openai_non_gpt_prefix_blocked():
+    assert LLMClient._is_chat_model("openai", "dall-e-3") is False
+    assert LLMClient._is_chat_model("openai", "whisper-1") is False
+
 
 def test_is_chat_model_xai_non_grok_blocked():
     assert LLMClient._is_chat_model("xai", "something-else") is False
@@ -371,6 +402,7 @@ def test_is_chat_model_lmstudio_empty_string():
 def test_fallback_base_url_values():
     assert LLMClient._fallback_base_url("lmstudio") == "http://127.0.0.1:1234/v1"
     assert LLMClient._fallback_base_url("xai") == "https://api.x.ai/v1"
+    assert LLMClient._fallback_base_url("openai") == "https://api.openai.com/v1"
 
 
 # --- _has_user_message ---
@@ -395,8 +427,8 @@ def test_has_user_message_skips_non_dict():
 
 def test_headers_includes_bearer_when_key_present():
     client = LLMClient(_cfg())
-    headers = client._headers("xai")
-    assert headers["Authorization"] == "Bearer X"
+    headers = client._headers("openai")
+    assert headers["Authorization"] == "Bearer O"
 
 
 def test_headers_no_auth_when_key_empty():
@@ -506,14 +538,81 @@ def test_generate_video_uses_edits_endpoint_for_existing_video(monkeypatch):
     assert "duration" not in payload
 
 
-def test_download_video_content_uses_xai_content_endpoint(monkeypatch):
+def test_generate_video_uses_openai_sora_multipart(monkeypatch):
+    RecordingAsyncClient.requests = []
+    RecordingAsyncClient.responses = [
+        FakeResponse({"id": "vid_openai", "status": "queued"}),
+        FakeResponse({"id": "vid_openai", "status": "completed"}),
+        FakeResponse(content=b"video-bytes"),
+    ]
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+
+    async def _noop_sleep(_seconds):
+        return None
+
+    monkeypatch.setattr("agent_smithers.llm_client.asyncio.sleep", _noop_sleep)
+    client = LLMClient(_cfg("gpt-5-mini"))
+    result = asyncio.run(
+        client.generate_video(
+            prompt="camera orbit around the statue",
+            model="gpt-5-mini",
+            image_url=_png_data_uri(512, 512),
+            seconds=8,
+            size="1280x720",
+        )
+    )
+    assert result["id"] == "vid_openai"
+    post_method, post_url, post_headers, post_request = RecordingAsyncClient.requests[0]
+    get_method, get_url, _, _ = RecordingAsyncClient.requests[1]
+    assert post_method == "POST"
+    assert post_url == "https://api.openai.com/v1/videos"
+    assert "Content-Type" not in post_headers
+    multipart = post_request["files"]
+    assert ("model", (None, "sora-2", None)) in multipart
+    assert ("prompt", (None, "camera orbit around the statue", None)) in multipart
+    assert ("seconds", (None, "8", None)) in multipart
+    assert ("size", (None, "1280x720", None)) in multipart
+    file_part = next(item for item in multipart if item[0] == "input_reference")
+    assert file_part[1][0].startswith("input_reference")
+    assert file_part[1][2] == "image/png"
+    prepared_image = Image.open(BytesIO(file_part[1][1]))
+    assert prepared_image.size == (1280, 720)
+    assert get_method == "GET"
+    assert get_url == "https://api.openai.com/v1/videos/vid_openai"
+
+
+def test_generate_video_infers_openai_sora_size_from_input_image(monkeypatch):
+    RecordingAsyncClient.requests = []
+    RecordingAsyncClient.responses = [
+        FakeResponse({"id": "vid_openai", "status": "completed"}),
+    ]
+    monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
+    client = LLMClient(_cfg("gpt-5-mini"))
+    result = asyncio.run(
+        client.generate_video(
+            prompt="portrait fly-through",
+            model="gpt-5-mini",
+            image_url=_png_data_uri(720, 1280),
+            seconds=4,
+        )
+    )
+    assert result["id"] == "vid_openai"
+    method, url, headers, request = RecordingAsyncClient.requests[0]
+    assert method == "POST"
+    assert url == "https://api.openai.com/v1/videos"
+    assert "Content-Type" not in headers
+    multipart = request["files"]
+    assert ("size", (None, "720x1280", None)) in multipart
+
+
+def test_download_video_content_uses_openai_content_endpoint(monkeypatch):
     RecordingAsyncClient.requests = []
     RecordingAsyncClient.responses = [FakeResponse(content=b"video-bytes")]
     monkeypatch.setattr("agent_smithers.llm_client.httpx.AsyncClient", RecordingAsyncClient)
-    client = LLMClient(_cfg("grok-4"))
-    payload = asyncio.run(client.download_video_content("vid_xai", provider="xai"))
+    client = LLMClient(_cfg("gpt-5-mini"))
+    payload = asyncio.run(client.download_video_content("vid_openai", provider="openai"))
     assert payload == b"video-bytes"
     method, url, headers, _ = RecordingAsyncClient.requests[0]
     assert method == "GET"
-    assert url == "https://api.x.ai/v1/videos/vid_xai/content"
-    assert headers["Authorization"] == "Bearer X"
+    assert url == "https://api.openai.com/v1/videos/vid_openai/content"
+    assert headers["Authorization"] == "Bearer O"

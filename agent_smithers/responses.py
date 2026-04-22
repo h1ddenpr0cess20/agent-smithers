@@ -10,17 +10,19 @@ from urllib.parse import urlparse
 if TYPE_CHECKING:
     from .context import AppContext
 
+from .llm_client import LLMClient
 from .tooling import (
     GROK_EDIT_IMAGE_TOOL,
     GROK_GENERATE_IMAGE_TOOL,
     GROK_GENERATE_VIDEO_TOOL,
+    SORA_GENERATE_VIDEO_TOOL,
 )
 
 
 INLINE_CITATION_RE = None
 IMAGE_GENERATION_TOOL_NAMES = {GROK_GENERATE_IMAGE_TOOL}
 IMAGE_EDIT_TOOL_NAMES = {GROK_EDIT_IMAGE_TOOL}
-VIDEO_GENERATION_TOOL_NAMES = {GROK_GENERATE_VIDEO_TOOL}
+VIDEO_GENERATION_TOOL_NAMES = {GROK_GENERATE_VIDEO_TOOL, SORA_GENERATE_VIDEO_TOOL}
 LOCAL_MEDIA_TOOL_NAMES = IMAGE_GENERATION_TOOL_NAMES | IMAGE_EDIT_TOOL_NAMES | VIDEO_GENERATION_TOOL_NAMES
 
 
@@ -91,7 +93,7 @@ def extract_text(response: Dict[str, Any]) -> str:
 
 
 def _video_backend_label(provider: str) -> str:
-    return "Grok"
+    return "Sora" if provider == "openai" else "Grok"
 
 
 def strip_inline_citations(text: str, annotations: Any = None) -> str:
@@ -308,16 +310,48 @@ async def settle_response(
     tools: Optional[List[Dict[str, Any]]],
     tools_enabled: bool,
     thread_user: Optional[str] = None,
+    followup_instructions: Optional[str] = None,
+    followup_input_items: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Continue approvals and local function calls until the response settles."""
     current = response
+    accumulated_input = list(followup_input_items) if followup_input_items is not None else None
     while True:
-        current = await maybe_continue_after_approvals(
-            ctx,
-            model=model,
-            tools=tools if tools_enabled else None,
-            response=current,
-        )
+        if accumulated_input is not None:
+            accumulated_input.extend(
+                item for item in (current.get("output") or [])
+                if isinstance(item, dict)
+            )
+            pending = approval_items(current)
+            auto_items = [item for item in pending if should_auto_approve(ctx, item)]
+            if auto_items:
+                approval_input = [
+                    {
+                        "type": "mcp_approval_response",
+                        "approval_request_id": item["id"],
+                        "approve": True,
+                    }
+                    for item in auto_items
+                    if item.get("id")
+                ]
+                if approval_input:
+                    accumulated_input.extend(approval_input)
+                    current = await ctx.llm.create_response(
+                        model=model,
+                        input_items=list(accumulated_input),
+                        tools=tools if tools_enabled else None,
+                        tool_choice="auto" if tools_enabled and tools else None,
+                        options=ctx.options,
+                        instructions=followup_instructions,
+                    )
+                    continue
+        else:
+            current = await maybe_continue_after_approvals(
+                ctx,
+                model=model,
+                tools=tools if tools_enabled else None,
+                response=current,
+            )
         image_outputs = await handle_generate_image_calls(
             ctx,
             current,
@@ -328,14 +362,25 @@ async def settle_response(
         if not image_outputs:
             return current
         with ctx.status(f"Generating follow-up reply with {model}"):
-            current = await ctx.llm.create_response(
-                model=model,
-                previous_response_id=current.get("id"),
-                input_items=image_outputs,
-                tools=tools if tools_enabled else None,
-                tool_choice="auto" if tools_enabled and tools else None,
-                options=ctx.options,
-            )
+            if accumulated_input is not None:
+                accumulated_input.extend(image_outputs)
+                current = await ctx.llm.create_response(
+                    model=model,
+                    input_items=list(accumulated_input),
+                    tools=tools if tools_enabled else None,
+                    tool_choice="auto" if tools_enabled and tools else None,
+                    options=ctx.options,
+                    instructions=followup_instructions,
+                )
+            else:
+                current = await ctx.llm.create_response(
+                    model=model,
+                    previous_response_id=current.get("id"),
+                    input_items=image_outputs,
+                    tools=tools if tools_enabled else None,
+                    tool_choice="auto" if tools_enabled and tools else None,
+                    options=ctx.options,
+                )
 
 
 async def handle_generate_image_calls(
@@ -392,7 +437,7 @@ async def handle_generate_image_calls(
                     thread_user=thread_user,
                     prompt=prompt,
                     args=args,
-                    provider="xai",
+                    provider="openai" if name == SORA_GENERATE_VIDEO_TOOL else "xai",
                 )
         except Exception:
             ctx.logger.exception("%s tool call failed", call.get("name"))
@@ -544,12 +589,12 @@ async def _execute_generate_video_call(
     args: Dict[str, Any],
     provider: str,
 ) -> str:
-    backend = "grok"
+    backend = "sora" if provider == "openai" else "grok"
     image_url = str(args.get("image_url") or "").strip() or None
     video_url = str(args.get("video_url") or "").strip() or None
     if not image_url and not video_url:
         image_url = ctx._latest_generated_media(room_id, thread_user, kind="image")
-        if not image_url:
+        if not image_url and provider != "openai":
             video_url = ctx._latest_generated_media(room_id, thread_user, kind="video")
     if image_url and video_url:
         raise ValueError("Only one of image_url or video_url may be provided")
@@ -570,19 +615,33 @@ async def _execute_generate_video_call(
             on_status=status.update,
         )
         suffix = ".mp4"
-        final_url = _extract_video_url(video_response)
-        if not final_url:
-            raise ValueError("Video response did not include a downloadable URL")
-        suffix = _guess_media_suffix(final_url, ".mp4")
-        ctx._remember_generated_media(
-            room_id,
-            thread_user,
-            kind="video",
-            reference=final_url,
-            mime_type="video/mp4",
-        )
-        status.update(f"Downloading video from {backend_label}")
-        video_bytes = await ctx.llm.download_url(final_url, provider=provider)
+        if provider == "openai":
+            video_id = str(video_response.get("id") or "").strip()
+            if not video_id:
+                raise ValueError("Video response did not include a downloadable id")
+            ctx._remember_generated_media(
+                room_id,
+                thread_user,
+                kind="video",
+                reference=video_id,
+                mime_type="video/mp4",
+            )
+            status.update(f"Downloading video from {backend_label}")
+            video_bytes = await ctx.llm.download_video_content(video_id, provider=provider)
+        else:
+            final_url = _extract_video_url(video_response)
+            if not final_url:
+                raise ValueError("Video response did not include a downloadable URL")
+            suffix = _guess_media_suffix(final_url, ".mp4")
+            ctx._remember_generated_media(
+                room_id,
+                thread_user,
+                kind="video",
+                reference=final_url,
+                mime_type="video/mp4",
+            )
+            status.update(f"Downloading video from {backend_label}")
+            video_bytes = await ctx.llm.download_url(final_url, provider=provider)
     path = ctx._write_artifact(video_bytes, suffix)
     try:
         if room_id:
@@ -618,6 +677,10 @@ async def generate_reply(
         provider=provider,
         tools=active_tools,
     )
+    followup_instructions = None
+    followup_input_items = None
+    if provider == "openai":
+        followup_instructions, followup_input_items = LLMClient.build_input_items(prepared_messages)
     ctx.hosted_tools = active_tools
     tools_enabled = ctx.tools_enabled if use_tools is None else bool(use_tools and active_tools)
     with ctx.status(f"Generating reply with {use_model}"):
@@ -636,6 +699,8 @@ async def generate_reply(
         tools=active_tools,
         tools_enabled=tools_enabled,
         thread_user=thread_user,
+        followup_instructions=followup_instructions,
+        followup_input_items=followup_input_items,
     )
     sent_artifacts = await send_response_artifacts(
         ctx,

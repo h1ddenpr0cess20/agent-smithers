@@ -1,6 +1,6 @@
 # Media
 
-When xAI media generation returns image payloads, the bot writes temporary artifacts locally and uploads them to Matrix. Grok Imagine video outputs are also downloaded to temporary local artifacts before upload.
+When OpenAI or xAI media generation returns image payloads, the bot writes temporary artifacts locally and uploads them to Matrix. Sora and Grok Imagine video outputs are also downloaded to temporary local artifacts before upload.
 
 ## Notes
 

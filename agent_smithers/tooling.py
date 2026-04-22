@@ -17,9 +17,11 @@ XAI_IMAGE_ASPECT_RATIOS = [
 ]
 XAI_VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"]
 XAI_VIDEO_RESOLUTIONS = ["480p", "720p"]
+OPENAI_SORA_SIZES = ["720x1280", "1280x720", "1024x1792", "1792x1024"]
 GROK_GENERATE_IMAGE_TOOL = "grok_generate_image"
 GROK_EDIT_IMAGE_TOOL = "grok_edit_image"
 GROK_GENERATE_VIDEO_TOOL = "grok_generate_video"
+SORA_GENERATE_VIDEO_TOOL = "sora_generate_video"
 
 
 def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str, Any]]], set[str]]:
@@ -38,7 +40,7 @@ def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str,
 
 def configured_providers(ctx: "AppContext") -> List[str]:
     providers: List[str] = []
-    for provider in ("xai", "lmstudio"):
+    for provider in ("openai", "xai", "lmstudio"):
         if provider == "lmstudio":
             if ctx.cfg.llm.base_urls.get(provider):
                 providers.append(provider)
@@ -123,16 +125,21 @@ def build_tools(ctx: "AppContext", provider: str) -> List[Dict[str, Any]]:
         defaults["x_search"] = True
         defaults["image_generation"] = True
         defaults["video_generation"] = True
+    elif provider == "openai":
+        defaults["image_generation"] = True
+        defaults["video_generation"] = True
     for tool_name, default_value in defaults.items():
-        if provider == "xai" and tool_name == "video_generation":
+        if provider in {"xai", "openai"} and tool_name == "video_generation":
             continue
         if provider == "xai" and tool_name == "image_generation":
             continue
         tool = build_hosted_tool(ctx, provider, tool_name, hosted_config.get(tool_name, default_value))
         if tool:
             tools.append(tool)
-    if provider == "xai":
+    if provider in {"openai", "xai"}:
         tools.extend(build_local_media_tools(ctx, hosted_config))
+    if provider == "openai":
+        pass
     for name, spec in (ctx.cfg.llm.mcp_servers or {}).items():
         tool = build_mcp_tool(ctx, provider, name, spec)
         if tool:
@@ -143,6 +150,7 @@ def build_tools(ctx: "AppContext", provider: str) -> List[Dict[str, Any]]:
 def build_local_media_tools(ctx: "AppContext", hosted_config: Dict[str, Any]) -> List[Dict[str, Any]]:
     tools: List[Dict[str, Any]] = []
     xai_available = bool(ctx.cfg.llm.api_keys.get("xai"))
+    openai_available = bool(ctx.cfg.llm.api_keys.get("openai"))
     if xai_available and hosted_config.get("image_generation", True) not in (None, False):
         tools.extend(
             [
@@ -270,6 +278,39 @@ def build_local_media_tools(ctx: "AppContext", hosted_config: Dict[str, Any]) ->
                     },
                 }
             )
+        if openai_available:
+            tools.append(
+                {
+                    "type": "function",
+                    "name": SORA_GENERATE_VIDEO_TOOL,
+                    "description": "Generate a new video or animate an image with OpenAI Sora.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {
+                                "type": "string",
+                                "description": "A detailed description of the video to create.",
+                            },
+                            "image_url": {
+                                "type": "string",
+                                "description": "Optional public URL or data URI for image-to-video generation.",
+                            },
+                            "seconds": {
+                                "type": "integer",
+                                "description": "Sora clip duration in seconds.",
+                                "enum": [4, 8, 12],
+                            },
+                            "size": {
+                                "type": "string",
+                                "description": "Sora output size in width x height format.",
+                                "enum": OPENAI_SORA_SIZES,
+                            },
+                        },
+                        "required": ["prompt"],
+                        "additionalProperties": False,
+                    },
+                }
+            )
     return tools
 
 
@@ -289,6 +330,22 @@ def build_hosted_tool(
     elif spec is not True:
         ctx.logger.warning("Ignoring invalid tool config for %s", tool_name)
         return None
+    if (
+        tool_name == "web_search"
+        and provider == "openai"
+        and ctx.cfg.llm.web_search_country
+        and "user_location" not in tool
+    ):
+        tool["user_location"] = {
+            "type": "approximate",
+            "country": ctx.cfg.llm.web_search_country,
+        }
+    if (
+        tool_name == "code_interpreter"
+        and provider == "openai"
+        and "container" not in tool
+    ):
+        tool["container"] = {"type": "auto"}
     return tool
 
 

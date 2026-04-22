@@ -49,7 +49,7 @@ def test_router_dispatch_admin_command_denied_for_non_admin():
     async def admin_h(ctx, room, sender, display, args):
         pass
     r.register(".model", admin_h, admin=True)
-    fn, args = r.dispatch(object(), "!r", "@u", "User", ".model grok-4", False)
+    fn, args = r.dispatch(object(), "!r", "@u", "User", ".model gpt-4o", False)
     assert fn is None
 
 
@@ -58,9 +58,9 @@ def test_router_dispatch_admin_command_allowed_for_admin():
     async def admin_h(ctx, room, sender, display, args):
         pass
     r.register(".model", admin_h, admin=True)
-    fn, args = r.dispatch(object(), "!r", "@u", "Admin", ".model grok-4", True)
+    fn, args = r.dispatch(object(), "!r", "@u", "Admin", ".model gpt-4o", True)
     assert fn is admin_h
-    assert args[-1] == "grok-4"
+    assert args[-1] == "gpt-4o"
 
 
 def test_router_dispatch_botname_without_ai_registered():
