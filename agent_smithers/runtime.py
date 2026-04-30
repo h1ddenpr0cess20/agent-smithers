@@ -4,10 +4,13 @@ import asyncio
 import datetime as dt
 import json
 import signal
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .config import AppConfig
 from .context import AppContext
+
+if TYPE_CHECKING:
+    from .matrix_client import MatrixClientWrapper
 from .handlers.cmd_ai import handle_ai
 from .handlers.cmd_country import handle_country
 from .handlers.cmd_help import handle_help
@@ -88,7 +91,7 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
         pass
 
 
-async def thinking_indicator(matrix, room_id: str, target_event_id: str) -> None:
+async def thinking_indicator(matrix: MatrixClientWrapper, room_id: str, target_event_id: str) -> None:
     """Rotate through thinking emojis on a message while the bot processes.
 
     Args:
