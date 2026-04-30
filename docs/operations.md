@@ -35,9 +35,9 @@ AGENT_SMITHERS_LOG_LEVEL=DEBUG agent-smithers --env-file .env
 ## Common Issues
 
 - No replies:
-  Check room membership, Matrix credentials, and xAI connectivity.
+  Check room membership, Matrix credentials, and OpenAI connectivity.
 - Model errors:
-  Confirm the model exists and that your API key can access it.
+  Confirm the model exists in OpenAI and that your API key can access it.
 - MCP failures:
   Validate `MCP_SERVERS` JSON and any remote auth headers.
 - Image/code tool issues:

@@ -2,4 +2,4 @@
 
 Ollama is not supported in this version of the project.
 
-The bot uses the Responses API with xAI or LM Studio and does not support Ollama directly.
+The bot is currently OpenAI-only and uses the Responses API plus hosted tools/MCP.

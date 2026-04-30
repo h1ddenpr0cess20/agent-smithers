@@ -3,19 +3,24 @@ from __future__ import annotations
 import asyncio
 import base64
 import mimetypes
+from io import BytesIO
+import re
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
 import httpx
+from PIL import Image, ImageOps
 
 from .config import AppConfig, provider_for_model
 
 
 class LLMClient:
-    """Thin Responses API client for xAI-compatible providers."""
+    """Thin Responses API client for OpenAI-compatible providers."""
 
     LMSTUDIO_FALLBACK_USER_PROMPT = "Please continue the conversation."
+    OPENAI_VIDEO_MODEL = "sora-2"
+    OPENAI_SORA_SIZES = ("720x1280", "1280x720", "1024x1792", "1792x1024")
     XAI_IMAGE_MODEL = "grok-imagine-image"
     XAI_VIDEO_MODEL = "grok-imagine-video"
     VIDEO_POLL_INTERVAL_SECONDS = 5.0
@@ -27,7 +32,9 @@ class LLMClient:
     def _fallback_base_url(provider: str) -> str:
         if provider == "lmstudio":
             return "http://127.0.0.1:1234/v1"
-        return "https://api.x.ai/v1"
+        if provider == "xai":
+            return "https://api.x.ai/v1"
+        return "https://api.openai.com/v1"
 
     def _base_url(self, provider: str) -> str:
         configured = str(self.cfg.llm.base_urls.get(provider, "") or "").strip()
@@ -103,7 +110,7 @@ class LLMClient:
 
     @staticmethod
     def _video_backend_label(provider: str) -> str:
-        return "Grok"
+        return "Sora" if provider == "openai" else "Grok"
 
     def _headers(self, provider: str) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -141,6 +148,45 @@ class LLMClient:
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
         return filename, payload, mime_type
 
+    @classmethod
+    def _parse_size(cls, size: str) -> Tuple[int, int]:
+        width_str, height_str = size.split("x", 1)
+        return int(width_str), int(height_str)
+
+    @classmethod
+    def _choose_openai_sora_size(cls, width: int, height: int, requested_size: Optional[str]) -> str:
+        if requested_size:
+            return requested_size
+        source_ratio = width / height if height else 1.0
+        candidates = []
+        for candidate in cls.OPENAI_SORA_SIZES:
+            candidate_width, candidate_height = cls._parse_size(candidate)
+            candidate_ratio = candidate_width / candidate_height if candidate_height else 1.0
+            candidates.append((abs(candidate_ratio - source_ratio), candidate))
+        candidates.sort(key=lambda item: item[0])
+        return candidates[0][1]
+
+    async def _prepare_openai_video_reference(
+        self,
+        reference: str,
+        *,
+        size: Optional[str],
+    ) -> Tuple[str, str, bytes, str]:
+        filename, payload, _mime_type = await self._load_media_reference(
+            reference,
+            provider=None,
+            default_name="input_reference",
+        )
+        with Image.open(BytesIO(payload)) as image:
+            source = image.convert("RGBA") if image.mode in {"RGBA", "LA", "P"} else image.convert("RGB")
+            selected_size = self._choose_openai_sora_size(source.width, source.height, size)
+            target_width, target_height = self._parse_size(selected_size)
+            resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+            prepared = ImageOps.fit(source, (target_width, target_height), method=resampling)
+            output = BytesIO()
+            prepared.save(output, format="PNG")
+        return selected_size, f"{filename.rsplit('.', 1)[0]}.png", output.getvalue(), "image/png"
+
     @staticmethod
     def _is_chat_model(provider: str, model_id: str) -> bool:
         lowered = model_id.lower()
@@ -157,7 +203,25 @@ class LLMClient:
             blocked_fragments = ("imagine", "image", "video", "voice", "vision")
             return not any(fragment in lowered for fragment in blocked_fragments)
 
-        return bool(model_id.strip())
+        prefixes = ("gpt-", "o1", "o3", "o4")
+        if not model_id.startswith(prefixes):
+            return False
+
+        blocked_fragments = (
+            "preview",
+            "audio",
+            "computer-use",
+            "transcribe",
+            "tts",
+            "image",
+        )
+        if any(fragment in lowered for fragment in blocked_fragments):
+            return False
+
+        if re.search(r"-\d{4}-\d{2}-\d{2}$", lowered):
+            return False
+
+        return True
 
     @staticmethod
     def build_input_items(
@@ -380,11 +444,53 @@ class LLMClient:
         size: Optional[str] = None,
         on_status: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
-        """Generate or edit a video via xAI Grok Imagine."""
+        """Generate or edit a video via xAI or OpenAI Sora."""
         provider = self._provider_for_model(model)
         backend_name = str(backend or "").strip().lower()
         if backend_name in {"grok", "xai"}:
             provider = "xai"
+        elif backend_name in {"sora", "openai"}:
+            provider = "openai"
+        if provider == "openai":
+            if video_url:
+                raise ValueError("OpenAI Sora remix is not implemented in this client")
+            multipart_fields: List[Tuple[str, Tuple[Optional[str], Any, Optional[str]]]] = [
+                ("model", (None, self.OPENAI_VIDEO_MODEL, None)),
+                ("prompt", (None, prompt, None)),
+            ]
+            if seconds is not None:
+                multipart_fields.append(("seconds", (None, str(seconds), None)))
+            if image_url:
+                selected_size, filename, payload, mime_type = await self._prepare_openai_video_reference(
+                    image_url,
+                    size=size,
+                )
+                size = selected_size
+                multipart_fields.append(("input_reference", (filename, payload, mime_type)))
+            if size:
+                multipart_fields.append(("size", (None, size, None)))
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
+                response = await client.post(
+                    f"{self._base_url(provider)}/videos",
+                    headers=self._multipart_headers(provider),
+                    files=multipart_fields,
+                )
+                response.raise_for_status()
+                created = response.json()
+                status = str(created.get("status") or "").strip().lower()
+                if status in {"done", "completed", "succeeded", "success"}:
+                    return created
+                request_id = str(created.get("id") or "").strip()
+                if not request_id:
+                    raise RuntimeError("OpenAI video response did not include an id")
+                if on_status:
+                    on_status(f"Generating video with {self._video_backend_label(provider)} [{status or 'queued'}]")
+                return await self._poll_video_generation(
+                    client=client,
+                    provider=provider,
+                    request_id=request_id,
+                    on_status=on_status,
+                )
         payload: Dict[str, Any] = {
             "model": self.XAI_VIDEO_MODEL,
             "prompt": prompt,
@@ -425,7 +531,10 @@ class LLMClient:
 
     async def download_video_content(self, video_id: str, *, provider: str) -> bytes:
         """Download a generated video from a provider-specific content endpoint."""
-        url = f"{self._base_url(provider)}/videos/{video_id}/content"
+        if provider == "openai":
+            url = f"{self._base_url(provider)}/videos/{video_id}/content"
+        else:
+            url = f"{self._base_url(provider)}/videos/{video_id}/content"
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
             response = await client.get(url, headers=self._headers(provider))
             response.raise_for_status()

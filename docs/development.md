@@ -4,7 +4,7 @@
 
 - Config lives in `.env`
 - Main runtime is `agent_smithers/app.py`
-- LLM API integration is in `agent_smithers/llm_client.py`
+- OpenAI API integration is in `agent_smithers/llm_client.py`
 
 ## Run
 
@@ -24,5 +24,5 @@ python3 -m compileall agent_smithers
 ## Guidelines
 
 - Keep docs aligned with `.env` config, not JSON config
-- Prefer Responses API paths over legacy Chat Completions assumptions
+- Prefer OpenAI Responses API paths over legacy Chat Completions assumptions
 - Do not reintroduce local provider or `fastmcp` plumbing unless explicitly intended
