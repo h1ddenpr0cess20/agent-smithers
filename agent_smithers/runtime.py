@@ -103,18 +103,33 @@ async def thinking_indicator(matrix: MatrixClientWrapper, room_id: str, target_e
         room_id: Target room ID.
         target_event_id: The user's message event ID to react to.
     """
-    reaction_ids = []
+    # reaction_ids[i] is the currently-active reaction event id for _THINKING_EMOJIS[i],
+    # or None if that slot is temporarily redacted.
+    reaction_ids: list[Optional[str]] = [None] * len(_THINKING_EMOJIS)
     try:
-        for emoji in _THINKING_EMOJIS:
+        # Phase 1: accumulate all three emojis with a delay between each.
+        for idx, emoji in enumerate(_THINKING_EMOJIS):
             reaction_id = await matrix.send_reaction(room_id, target_event_id, emoji)
-            if reaction_id:
-                reaction_ids.append(reaction_id)
+            reaction_ids[idx] = reaction_id
             await asyncio.sleep(_THINKING_INTERVAL)
-        # Hold until cancelled (i.e. until the handler finishes).
-        await asyncio.sleep(float("inf"))
+        # Phase 2: cycle — for each slot, redact briefly then re-add, in sequence.
+        idx = 0
+        half = _THINKING_INTERVAL / 2
+        while True:
+            slot = idx % len(_THINKING_EMOJIS)
+            current = reaction_ids[slot]
+            if current:
+                await matrix.redact_event(room_id, current)
+                reaction_ids[slot] = None
+            await asyncio.sleep(half)
+            new_id = await matrix.send_reaction(room_id, target_event_id, _THINKING_EMOJIS[slot])
+            reaction_ids[slot] = new_id
+            await asyncio.sleep(half)
+            idx += 1
     except asyncio.CancelledError:
         for reaction_id in reaction_ids:
-            await matrix.redact_event(room_id, reaction_id)
+            if reaction_id:
+                await matrix.redact_event(room_id, reaction_id)
         raise
 
 
