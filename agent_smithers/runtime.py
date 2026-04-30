@@ -24,6 +24,10 @@ from .handlers.router import Router
 from .security import Security
 
 
+_THINKING_EMOJIS = ["🤔", "💭", "🧠"]
+_THINKING_INTERVAL = 3.0
+
+
 def build_router() -> Router:
     router = Router()
     router.register(".ai", handle_ai)
@@ -82,6 +86,30 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
                 pass
     except Exception:
         pass
+
+
+async def thinking_indicator(matrix, room_id: str, target_event_id: str) -> None:
+    """Rotate through thinking emojis on a message while the bot processes.
+
+    Args:
+        matrix: MatrixClientWrapper instance.
+        room_id: Target room ID.
+        target_event_id: The user's message event ID to react to.
+    """
+    reaction_id = None
+    idx = 0
+    try:
+        while True:
+            if reaction_id:
+                await matrix.redact_event(room_id, reaction_id)
+            emoji = _THINKING_EMOJIS[idx % len(_THINKING_EMOJIS)]
+            reaction_id = await matrix.send_reaction(room_id, target_event_id, emoji)
+            idx += 1
+            await asyncio.sleep(_THINKING_INTERVAL)
+    except asyncio.CancelledError:
+        if reaction_id:
+            await matrix.redact_event(room_id, reaction_id)
+        raise
 
 
 async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
@@ -148,9 +176,24 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
                 await security.allow_devices(sender)
             except Exception:
                 pass
-            result = handler(*args)
-            if asyncio.iscoroutine(result):
-                await result
+            user_event_id = getattr(event, "event_id", None)
+            if user_event_id:
+                indicator = asyncio.create_task(
+                    thinking_indicator(ctx.matrix, room.room_id, user_event_id)
+                )
+            else:
+                indicator = None
+            try:
+                result = handler(*args)
+                if asyncio.iscoroutine(result):
+                    await result
+            finally:
+                if indicator:
+                    indicator.cancel()
+                    try:
+                        await indicator
+                    except asyncio.CancelledError:
+                        pass
         except Exception as exc:
             ctx.log(exc)
 
