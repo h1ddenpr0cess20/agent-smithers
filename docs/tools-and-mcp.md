@@ -17,13 +17,16 @@ When enabled, the bot sends those tools in the Responses API request and the sel
 
 Provider notes:
 
+- OpenAI supports hosted `web_search`, `code_interpreter`, and `image_generation`.
+- This project also exposes a local `generate_video` function tool for OpenAI chat models, backed by the Sora Video API.
+- OpenAI `web_search` also supports `user_location`; this project maps `TOOLS_WEB_SEARCH_COUNTRY=US` to `{"user_location":{"type":"approximate","country":"US"}}`.
 - xAI documents `web_search`, `x_search`, `code_interpreter`, and remote MCP for the Grok 4 family. This project only attaches those hosted tools to `grok-4*` models.
-- When `XAI_API_KEY` is configured, this project exposes Grok Imagine image generation/editing and video generation as local function tools.
+- Local media function tools are broader than hosted tools. When the relevant API keys are configured, this project exposes Grok Imagine image tools and a backend-selectable `generate_video` tool to both OpenAI and xAI chat models.
 - xAI's current provider docs do not document a country filter for `web_search`, and `x_search` exposes X-specific filters rather than country selection.
-- This project applies `TOOLS_WEB_SEARCH_COUNTRY` as a search-policy instruction whenever `web_search` or `x_search` is enabled.
+- To keep behavior aligned, this project also applies `TOOLS_WEB_SEARCH_COUNTRY=US` as an xAI search-policy instruction whenever `web_search` or `x_search` is enabled.
 - `TOOLS_X_SEARCH` is used only when the active model is from xAI.
-- `TOOLS_IMAGE_GENERATION` enables Grok Imagine image generation/editing local tools when `XAI_API_KEY` is configured.
-- `TOOLS_VIDEO_GENERATION` enables a local `generate_video` tool backed by xAI Grok Imagine when `XAI_API_KEY` is configured.
+- `TOOLS_IMAGE_GENERATION` enables OpenAI hosted image generation plus Grok Imagine image generation/editing local tools when `XAI_API_KEY` is configured.
+- `TOOLS_VIDEO_GENERATION` enables a local `generate_video` tool with `backend` selection for OpenAI Sora and xAI Grok Imagine when the relevant provider keys are configured.
 
 ## MCP
 
@@ -36,6 +39,17 @@ MCP_SERVERS={"deepwiki":{"server_url":"https://mcp.deepwiki.com/mcp","require_ap
 ```
 
 Supported fields depend on the hosted MCP tool shape used by the provider.
+
+OpenAI pass-through fields:
+
+- `server_url`
+- `connector_id`
+- `server_label`
+- `server_description`
+- `allowed_tools`
+- `require_approval`
+- `authorization`
+- `headers`
 
 xAI pass-through fields:
 
@@ -59,7 +73,7 @@ MCP_SERVERS={"deepwiki":{"server_url":"https://mcp.deepwiki.com/mcp","auto_appro
 
 ## Video Whitelist
 
-Video generation through Grok Imagine costs real money per call. To prevent surprise bills, you can restrict who is allowed to generate video using the `VIDEO_WHITELIST` environment variable or the `.whitelist` admin command.
+Video generation through Sora and Grok costs real money per call. To prevent surprise bills, you can restrict who is allowed to generate video using the `VIDEO_WHITELIST` environment variable or the `.whitelist` admin command.
 
 When the whitelist is active, only listed users and admins can generate video. Everyone else gets a rejection message. Admins (configured via `MATRIX_ADMINS`) are always allowed regardless of the whitelist.
 
@@ -102,4 +116,4 @@ When `TOOLS_WEB_SEARCH_COUNTRY` is set, search results are biased to that countr
 .country        # show current status
 ```
 
-When disabled, the xAI search-policy instruction is omitted.
+When disabled, OpenAI's `user_location` is stripped from `web_search` tools and the xAI search-policy instruction is omitted.

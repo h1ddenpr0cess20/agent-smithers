@@ -35,7 +35,7 @@ def _make_ctx(*, generate_reply_result="I am Shakespeare", generate_reply_error=
         history=HistoryStore("you are ", ".", "helper", max_items=8),
         matrix=FakeMatrix(),
         render=lambda s: None,
-        model="grok-4",
+        model="gpt-4o",
         default_personality="helper",
         generate_reply=generate_reply,
         clean_response_text=lambda text, sender_display, sender_id: text.strip(),

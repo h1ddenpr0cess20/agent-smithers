@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .exceptions import ConfigError
 
 
-SUPPORTED_PROVIDERS = {"xai", "lmstudio"}
+SUPPORTED_PROVIDERS = {"openai", "xai", "lmstudio"}
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
@@ -110,6 +110,8 @@ def provider_for_model(model: str, models: Dict[str, List[str]]) -> Optional[str
     lowered = selected.lower()
     if lowered.startswith("grok-"):
         return "xai"
+    if lowered.startswith(("gpt-", "o1", "o3", "o4")):
+        return "openai"
     return None
 
 
@@ -120,7 +122,7 @@ def validate_config(cfg: AppConfig) -> Tuple[bool, List[str]]:
     for provider in sorted(SUPPORTED_PROVIDERS):
         if cfg.llm.models.get(provider) or cfg.llm.api_keys.get(provider) or cfg.llm.base_urls.get(provider):
             configured_providers.append(provider)
-        if provider == "xai" and cfg.llm.models.get(provider) and not cfg.llm.api_keys.get(provider):
+        if provider in {"openai", "xai"} and cfg.llm.models.get(provider) and not cfg.llm.api_keys.get(provider):
             errors.append(f"{provider.upper()}_API_KEY is required when {provider.upper()}_MODELS is set")
         if provider == "lmstudio" and cfg.llm.models.get(provider) and not cfg.llm.base_urls.get(provider):
             errors.append("LMSTUDIO_BASE_URL is required when LMSTUDIO_MODELS is set")
@@ -134,7 +136,7 @@ def validate_config(cfg: AppConfig) -> Tuple[bool, List[str]]:
             errors.append(
                 f"DEFAULT_MODEL '{cfg.llm.default_model}' does not match any configured provider"
             )
-        elif provider == "xai" and not cfg.llm.api_keys.get(provider):
+        elif provider in {"openai", "xai"} and not cfg.llm.api_keys.get(provider):
             errors.append(f"{provider.upper()}_API_KEY is required for DEFAULT_MODEL '{cfg.llm.default_model}'")
         elif provider == "lmstudio" and not cfg.llm.base_urls.get(provider):
             errors.append(f"LMSTUDIO_BASE_URL is required for DEFAULT_MODEL '{cfg.llm.default_model}'")
@@ -169,11 +171,14 @@ def load_config(path: Optional[str] = None) -> AppConfig:
     """Load application config from a .env file and environment variables."""
     load_env_file(path)
 
+    openai_models = _parse_csv(os.getenv("OPENAI_MODELS"))
     xai_models = _parse_csv(os.getenv("XAI_MODELS"))
     lmstudio_models = _parse_csv(os.getenv("LMSTUDIO_MODELS"))
     default_model = os.getenv(
         "DEFAULT_MODEL",
-        xai_models[0] if xai_models else (lmstudio_models[0] if lmstudio_models else ""),
+        openai_models[0]
+        if openai_models
+        else (xai_models[0] if xai_models else (lmstudio_models[0] if lmstudio_models else "")),
     )
     prompt_prefix = os.getenv("BOT_PROMPT_PREFIX", "assume the personality of ")
     prompt_suffix = os.getenv(
@@ -195,10 +200,12 @@ def load_config(path: Optional[str] = None) -> AppConfig:
 
     llm = LLMConfig(
         models={
+            "openai": openai_models,
             "xai": xai_models,
             "lmstudio": lmstudio_models,
         },
         api_keys={
+            "openai": os.getenv("OPENAI_API_KEY", "").strip(),
             "xai": os.getenv("XAI_API_KEY", "").strip(),
             "lmstudio": os.getenv("LMSTUDIO_API_KEY", "").strip(),
         },
@@ -220,6 +227,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         mcp_servers=_parse_json(os.getenv("MCP_SERVERS"), {}),
         timeout=int(
             os.getenv("LLM_TIMEOUT")
+            or os.getenv("OPENAI_TIMEOUT")
             or os.getenv("XAI_TIMEOUT")
             or "180"
         ),

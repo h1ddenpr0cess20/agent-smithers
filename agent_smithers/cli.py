@@ -83,7 +83,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.no_e2e:
         cfg.matrix.e2e = False
     logging.getLogger(__name__).info(
-        "Loaded config. xAI models: %s; LM Studio models: %s; Default model: %s",
+        "Loaded config. OpenAI models: %s; xAI models: %s; LM Studio models: %s; Default model: %s",
+        ", ".join(cfg.llm.models.get("openai", [])),
         ", ".join(cfg.llm.models.get("xai", [])),
         ", ".join(cfg.llm.models.get("lmstudio", [])),
         cfg.llm.default_model,
