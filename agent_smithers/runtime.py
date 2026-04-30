@@ -188,6 +188,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
                 indicator = asyncio.create_task(
                     thinking_indicator(ctx.matrix, room.room_id, user_event_id)
                 )
+                ctx.thinking_indicator = indicator
             else:
                 indicator = None
             try:
@@ -201,6 +202,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
                         await indicator
                     except asyncio.CancelledError:
                         pass
+                ctx.thinking_indicator = None
         except Exception as exc:
             ctx.log(exc)
 

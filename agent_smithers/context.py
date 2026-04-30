@@ -326,3 +326,13 @@ class AppContext:
             tool_choice=tool_choice,
             thread_user=thread_user,
         )
+
+    async def clear_thinking_indicator(self) -> None:
+        """Clear the active thinking indicator if one exists."""
+        indicator = getattr(self, "thinking_indicator", None)
+        if indicator and not indicator.done():
+            indicator.cancel()
+            try:
+                await indicator
+            except asyncio.CancelledError:
+                pass
