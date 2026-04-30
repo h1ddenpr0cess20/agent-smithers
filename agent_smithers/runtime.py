@@ -93,10 +93,10 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
 
 
 async def thinking_indicator(matrix: MatrixClientWrapper, room_id: str, target_event_id: str) -> None:
-    """Add thinking emojis that cycle while the bot processes.
+    """Add thinking emojis while the bot processes, then clean them up.
 
-    Emojis build up (🤔, then 💭, then 🧠) then cycle with each disappearing and reappearing.
-    Removed when the handler completes.
+    Emojis are added one at a time (🤔, 💭, 🧠) with a delay between each,
+    then all are redacted when the handler completes.
 
     Args:
         matrix: MatrixClientWrapper instance.
@@ -110,14 +110,8 @@ async def thinking_indicator(matrix: MatrixClientWrapper, room_id: str, target_e
             if reaction_id:
                 reaction_ids.append(reaction_id)
             await asyncio.sleep(_THINKING_INTERVAL)
-        idx = 0
-        while True:
-            reaction_to_cycle = reaction_ids[idx % len(reaction_ids)]
-            await matrix.redact_event(room_id, reaction_to_cycle)
-            await asyncio.sleep(_THINKING_INTERVAL / 2)
-            await matrix.send_reaction(room_id, target_event_id, _THINKING_EMOJIS[idx % len(_THINKING_EMOJIS)])
-            idx += 1
-            await asyncio.sleep(_THINKING_INTERVAL / 2)
+        # Hold until cancelled (i.e. until the handler finishes).
+        await asyncio.sleep(float("inf"))
     except asyncio.CancelledError:
         for reaction_id in reaction_ids:
             await matrix.redact_event(room_id, reaction_id)
