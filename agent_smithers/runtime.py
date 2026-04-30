@@ -28,7 +28,8 @@ from .security import Security
 
 
 _THINKING_EMOJIS = ["🤔", "💭", "🧠"]
-_THINKING_INTERVAL = 3.0
+_THINKING_INTERVAL = 4.5
+_GENERATING_HANDLERS = {handle_ai, handle_x, handle_persona, handle_custom}
 
 
 def build_router() -> Router:
@@ -92,25 +93,28 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
 
 
 async def thinking_indicator(matrix: MatrixClientWrapper, room_id: str, target_event_id: str) -> None:
-    """Rotate through thinking emojis on a message while the bot processes.
+    """Add thinking emojis to a message while the bot processes.
+
+    Emojis accumulate (🤔, then 💭, then 🧠) and remain until the response is sent.
 
     Args:
         matrix: MatrixClientWrapper instance.
         room_id: Target room ID.
         target_event_id: The user's message event ID to react to.
     """
-    reaction_id = None
+    reaction_ids = []
     idx = 0
     try:
-        while True:
-            if reaction_id:
-                await matrix.redact_event(room_id, reaction_id)
-            emoji = _THINKING_EMOJIS[idx % len(_THINKING_EMOJIS)]
+        while idx < len(_THINKING_EMOJIS):
+            emoji = _THINKING_EMOJIS[idx]
             reaction_id = await matrix.send_reaction(room_id, target_event_id, emoji)
+            if reaction_id:
+                reaction_ids.append(reaction_id)
             idx += 1
-            await asyncio.sleep(_THINKING_INTERVAL)
+            if idx < len(_THINKING_EMOJIS):
+                await asyncio.sleep(_THINKING_INTERVAL)
     except asyncio.CancelledError:
-        if reaction_id:
+        for reaction_id in reaction_ids:
             await matrix.redact_event(room_id, reaction_id)
         raise
 
@@ -180,7 +184,8 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
             except Exception:
                 pass
             user_event_id = getattr(event, "event_id", None)
-            if user_event_id:
+            should_indicate = handler in _GENERATING_HANDLERS and user_event_id
+            if should_indicate:
                 indicator = asyncio.create_task(
                     thinking_indicator(ctx.matrix, room.room_id, user_event_id)
                 )
