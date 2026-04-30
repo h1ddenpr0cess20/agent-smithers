@@ -174,7 +174,9 @@ class MatrixClientWrapper:
                 ignore_unverified_devices=True,
             )
             return getattr(resp, "event_id", None)
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.debug(f"Failed to send reaction {key} to {event_id}: {e}")
             return None
 
     async def redact_event(self, room_id: str, event_id: str) -> None:
