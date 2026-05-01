@@ -148,6 +148,49 @@ class MatrixClientWrapper:
         except Exception:
             return user_id
 
+    async def send_reaction(self, room_id: str, event_id: str, key: str) -> Optional[str]:
+        """Send a reaction emoji to an event.
+
+        Args:
+            room_id: Target room ID.
+            event_id: Event ID to react to.
+            key: Emoji or unicode string to react with.
+
+        Returns:
+            The reaction event ID, or None on failure.
+        """
+        content = {
+            "m.relates_to": {
+                "rel_type": "m.annotation",
+                "event_id": event_id,
+                "key": key,
+            }
+        }
+        try:
+            resp = await self.client.room_send(
+                room_id=room_id,
+                message_type="m.reaction",
+                content=content,
+                ignore_unverified_devices=True,
+            )
+            return getattr(resp, "event_id", None)
+        except Exception as e:
+            import logging
+            logging.debug(f"Failed to send reaction {key} to {event_id}: {e}")
+            return None
+
+    async def redact_event(self, room_id: str, event_id: str) -> None:
+        """Redact (delete) an event by its ID.
+
+        Args:
+            room_id: Target room ID.
+            event_id: Event ID to redact.
+        """
+        try:
+            await self.client.room_redact(room_id=room_id, event_id=event_id)
+        except Exception:
+            pass
+
     def add_text_handler(self, handler: TextHandler) -> None:
         """Register a RoomMessageText callback that wraps your handler."""
         async def _cb(room: MatrixRoom, event: RoomMessageText) -> None:  # type: ignore

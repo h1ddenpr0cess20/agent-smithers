@@ -4,10 +4,13 @@ import asyncio
 import datetime as dt
 import json
 import signal
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .config import AppConfig
 from .context import AppContext
+
+if TYPE_CHECKING:
+    from .matrix_client import MatrixClientWrapper
 from .handlers.cmd_ai import handle_ai
 from .handlers.cmd_country import handle_country
 from .handlers.cmd_help import handle_help
@@ -22,6 +25,11 @@ from .handlers.cmd_whitelist import handle_whitelist
 from .handlers.cmd_x import handle_x
 from .handlers.router import Router
 from .security import Security
+
+
+_THINKING_EMOJIS = ["🤔", "💭", "🧠"]
+_THINKING_INTERVAL = 4.5
+_GENERATING_HANDLERS = {handle_ai, handle_x, handle_persona, handle_custom}
 
 
 def build_router() -> Router:
@@ -82,6 +90,50 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
                 pass
     except Exception:
         pass
+
+
+async def thinking_indicator(matrix: MatrixClientWrapper, room_id: str, target_event_id: str) -> None:
+    """Add thinking emojis while the bot processes, then clean them up.
+
+    Emojis are added one at a time (🤔, 💭, 🧠) with a delay between each,
+    then all are redacted when the handler completes.
+
+    Args:
+        matrix: MatrixClientWrapper instance.
+        room_id: Target room ID.
+        target_event_id: The user's message event ID to react to.
+    """
+    # reaction_ids[i] is the currently-active reaction event id for _THINKING_EMOJIS[i],
+    # or None if that slot is temporarily redacted.
+    reaction_ids: list[Optional[str]] = [None] * len(_THINKING_EMOJIS)
+    try:
+        # Phase 1: accumulate all three emojis with a delay between each.
+        for idx, emoji in enumerate(_THINKING_EMOJIS):
+            reaction_id = await matrix.send_reaction(room_id, target_event_id, emoji)
+            reaction_ids[idx] = reaction_id
+            await asyncio.sleep(_THINKING_INTERVAL)
+        # Phase 2: cycle — for each slot, redact briefly then re-add, in sequence.
+        idx = 0
+        half = _THINKING_INTERVAL / 2
+        while True:
+            slot = idx % len(_THINKING_EMOJIS)
+            current = reaction_ids[slot]
+            if current:
+                await matrix.redact_event(room_id, current)
+            await asyncio.sleep(half)
+            new_id = await matrix.send_reaction(room_id, target_event_id, _THINKING_EMOJIS[slot])
+            if new_id:
+                reaction_ids[slot] = new_id
+            await asyncio.sleep(half)
+            idx += 1
+    except asyncio.CancelledError:
+        pending = [rid for rid in reaction_ids if rid]
+        if pending:
+            await asyncio.gather(
+                *(matrix.redact_event(room_id, rid) for rid in pending),
+                return_exceptions=True,
+            )
+        raise
 
 
 async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
@@ -148,9 +200,27 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
                 await security.allow_devices(sender)
             except Exception:
                 pass
-            result = handler(*args)
-            if asyncio.iscoroutine(result):
-                await result
+            user_event_id = getattr(event, "event_id", None)
+            should_indicate = handler in _GENERATING_HANDLERS and user_event_id
+            if should_indicate:
+                indicator = asyncio.create_task(
+                    thinking_indicator(ctx.matrix, room.room_id, user_event_id)
+                )
+                ctx.thinking_indicator = indicator
+            else:
+                indicator = None
+            try:
+                result = handler(*args)
+                if asyncio.iscoroutine(result):
+                    await result
+            finally:
+                if indicator:
+                    indicator.cancel()
+                    try:
+                        await indicator
+                    except asyncio.CancelledError:
+                        pass
+                ctx.thinking_indicator = None
         except Exception as exc:
             ctx.log(exc)
 
