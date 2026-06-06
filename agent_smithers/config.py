@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .exceptions import ConfigError
 
 
-SUPPORTED_PROVIDERS = {"openai", "xai", "lmstudio"}
+SUPPORTED_PROVIDERS = {"openai", "xai", "lmstudio", "ollama"}
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
@@ -86,7 +86,7 @@ class LLMConfig:
     tools: Dict[str, Any] = field(default_factory=dict)
     web_search_country: str = ""
     server_models: bool = True
-    history_size: int = 24
+    history_size: int = 8192
     history_encryption_key: str = ""
     mcp_servers: Dict[str, Any] = field(default_factory=dict)
     timeout: int = 300
@@ -97,6 +97,7 @@ class AppConfig:
     llm: LLMConfig
     matrix: MatrixConfig
     markdown: bool = True
+    thinking: bool = False
 
 
 def provider_for_model(model: str, models: Dict[str, List[str]]) -> Optional[str]:
@@ -126,6 +127,8 @@ def validate_config(cfg: AppConfig) -> Tuple[bool, List[str]]:
             errors.append(f"{provider.upper()}_API_KEY is required when {provider.upper()}_MODELS is set")
         if provider == "lmstudio" and cfg.llm.models.get(provider) and not cfg.llm.base_urls.get(provider):
             errors.append("LMSTUDIO_BASE_URL is required when LMSTUDIO_MODELS is set")
+        if provider == "ollama" and cfg.llm.models.get(provider) and not cfg.llm.base_urls.get(provider):
+            errors.append("OLLAMA_BASE_URL is required when OLLAMA_MODELS is set")
     if not configured_providers:
         errors.append("At least one provider must be configured")
     if not cfg.llm.default_model:
@@ -140,6 +143,8 @@ def validate_config(cfg: AppConfig) -> Tuple[bool, List[str]]:
             errors.append(f"{provider.upper()}_API_KEY is required for DEFAULT_MODEL '{cfg.llm.default_model}'")
         elif provider == "lmstudio" and not cfg.llm.base_urls.get(provider):
             errors.append(f"LMSTUDIO_BASE_URL is required for DEFAULT_MODEL '{cfg.llm.default_model}'")
+        elif provider == "ollama" and not cfg.llm.base_urls.get(provider):
+            errors.append(f"OLLAMA_BASE_URL is required for DEFAULT_MODEL '{cfg.llm.default_model}'")
     if not (isinstance(cfg.llm.prompt, list) and len(cfg.llm.prompt) >= 1):
         errors.append("Prompt settings must produce at least one prompt string")
     if not isinstance(cfg.llm.tools, dict):
@@ -174,11 +179,12 @@ def load_config(path: Optional[str] = None) -> AppConfig:
     openai_models = _parse_csv(os.getenv("OPENAI_MODELS"))
     xai_models = _parse_csv(os.getenv("XAI_MODELS"))
     lmstudio_models = _parse_csv(os.getenv("LMSTUDIO_MODELS"))
+    ollama_models = _parse_csv(os.getenv("OLLAMA_MODELS"))
     default_model = os.getenv(
         "DEFAULT_MODEL",
         openai_models[0]
         if openai_models
-        else (xai_models[0] if xai_models else (lmstudio_models[0] if lmstudio_models else "")),
+        else (xai_models[0] if xai_models else (lmstudio_models[0] if lmstudio_models else (ollama_models[0] if ollama_models else ""))),
     )
     prompt_prefix = os.getenv("BOT_PROMPT_PREFIX", "assume the personality of ")
     prompt_suffix = os.getenv(
@@ -203,6 +209,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
             "openai": openai_models,
             "xai": xai_models,
             "lmstudio": lmstudio_models,
+            "ollama": ollama_models,
         },
         api_keys={
             "openai": os.getenv("OPENAI_API_KEY", "").strip(),
@@ -211,6 +218,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         },
         base_urls={
             "lmstudio": _resolve_lmstudio_url(os.getenv("LMSTUDIO_BASE_URL", "").strip()),
+            "ollama": os.getenv("OLLAMA_BASE_URL", "").strip(),
         },
         default_model=default_model,
         personality=os.getenv(
@@ -222,7 +230,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         tools=tools,
         web_search_country=os.getenv("TOOLS_WEB_SEARCH_COUNTRY", "").strip().upper(),
         server_models=_parse_bool(os.getenv("SERVER_MODELS"), True),
-        history_size=int(os.getenv("HISTORY_SIZE", "24")),
+        history_size=int(os.getenv("HISTORY_SIZE", "8192")),
         history_encryption_key=os.getenv("HISTORY_ENCRYPTION_KEY", "").strip(),
         mcp_servers=_parse_json(os.getenv("MCP_SERVERS"), {}),
         timeout=int(
@@ -248,7 +256,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         video_whitelist=video_whitelist,
     )
 
-    cfg = AppConfig(llm=llm, matrix=matrix, markdown=_parse_bool(os.getenv("MARKDOWN"), True))
+    cfg = AppConfig(llm=llm, matrix=matrix, markdown=_parse_bool(os.getenv("MARKDOWN"), True), thinking=_parse_bool(os.getenv("THINKING"), False))
     ok, errs = validate_config(cfg)
     if not ok:
         raise ConfigError("Invalid configuration: " + "; ".join(errs))

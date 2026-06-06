@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+
+import httpx
 
 from .config import provider_for_model
 
@@ -24,6 +27,61 @@ GROK_GENERATE_VIDEO_TOOL = "grok_generate_video"
 SORA_GENERATE_VIDEO_TOOL = "sora_generate_video"
 
 
+_MCP_PROBE_TIMEOUT = 5.0
+
+
+async def _probe_url(url: str) -> bool:
+    """Return True if the server at *url* responds to a basic HTTP request."""
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(_MCP_PROBE_TIMEOUT)) as client:
+            response = await client.get(url)
+            return response.status_code < 500
+    except Exception:
+        return False
+
+
+async def probe_mcp_servers(ctx: "AppContext") -> None:
+    """Check configured MCP servers and remove unreachable ones from the tool list.
+
+    Probes each server_url in parallel at startup. Servers that fail to respond
+    are logged and dropped so they don't cause errors during generation.
+    """
+    mcp_tools_by_label: Dict[str, str] = {}
+    for provider_tools in ctx.hosted_tools_by_provider.values():
+        for tool in provider_tools:
+            if tool.get("type") == "mcp":
+                url = str(tool.get("server_url") or "").strip()
+                label = str(tool.get("server_label") or "").strip()
+                if url and label:
+                    mcp_tools_by_label[label] = url
+
+    if not mcp_tools_by_label:
+        return
+
+    results = await asyncio.gather(
+        *(_probe_url(url) for url in mcp_tools_by_label.values()),
+        return_exceptions=True,
+    )
+    offline: Set[str] = set()
+    for label, result in zip(mcp_tools_by_label, results):
+        if result is True:
+            ctx.logger.info("MCP server '%s' is reachable", label)
+        else:
+            ctx.logger.warning("MCP server '%s' is unreachable — skipping", label)
+            offline.add(label)
+
+    if not offline:
+        return
+
+    for provider, provider_tools in ctx.hosted_tools_by_provider.items():
+        ctx.hosted_tools_by_provider[provider] = [
+            t for t in provider_tools
+            if not (t.get("type") == "mcp" and str(t.get("server_label") or "").strip() in offline)
+        ]
+    ctx._mcp_auto_approve -= offline
+    ctx.hosted_tools = tools_for_model(ctx, ctx.model)
+
+
 def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str, Any]]], set[str]]:
     hosted_tools_by_provider = {
         provider: build_tools(ctx, provider)
@@ -40,8 +98,8 @@ def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str,
 
 def configured_providers(ctx: "AppContext") -> List[str]:
     providers: List[str] = []
-    for provider in ("openai", "xai", "lmstudio"):
-        if provider == "lmstudio":
+    for provider in ("openai", "xai", "lmstudio", "ollama"):
+        if provider in {"lmstudio", "ollama"}:
             if ctx.cfg.llm.base_urls.get(provider):
                 providers.append(provider)
             continue

@@ -31,9 +31,10 @@ def _make_ctx(*, generate_reply_result="I am Shakespeare", generate_reply_error=
 
     cfg_llm = SimpleNamespace(prompt=["you are ", "."])
     cfg = SimpleNamespace(llm=cfg_llm)
-    return SimpleNamespace(
-        history=HistoryStore("you are ", ".", "helper", max_items=8),
-        matrix=FakeMatrix(),
+    matrix = FakeMatrix()
+    ctx = SimpleNamespace(
+        history=HistoryStore("you are ", ".", "helper", max_tokens=8192),
+        matrix=matrix,
         render=lambda s: None,
         model="gpt-4o",
         default_personality="helper",
@@ -43,6 +44,8 @@ def _make_ctx(*, generate_reply_result="I am Shakespeare", generate_reply_error=
         user_models={},
         cfg=cfg,
     )
+    ctx.send_response = matrix.send_text
+    return ctx
 
 
 def test_handle_persona_sets_persona_and_generates_reply():

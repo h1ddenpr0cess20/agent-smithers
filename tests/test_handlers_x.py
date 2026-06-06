@@ -41,6 +41,7 @@ def test_x_supports_display_names_with_spaces():
         log=lambda *a, **k: None,
         user_models={},
     )
+    ctx.send_response = matrix.send_text
 
     asyncio.run(handle_x(ctx, "!r", "@sender:hs", "Sender", "John Doe hello there"))
 
@@ -67,6 +68,7 @@ def test_x_keeps_matrix_id_targeting():
         log=lambda *a, **k: None,
         user_models={},
     )
+    ctx.send_response = matrix.send_text
 
     asyncio.run(handle_x(ctx, "!r", "@sender:hs", "Sender", "@target:hs hello"))
 

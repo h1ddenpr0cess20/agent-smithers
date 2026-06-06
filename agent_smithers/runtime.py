@@ -19,6 +19,7 @@ from .handlers.cmd_model import handle_model
 from .handlers.cmd_mymodel import handle_mymodel
 from .handlers.cmd_prompt import handle_custom, handle_persona
 from .handlers.cmd_reset import handle_clear, handle_reset
+from .handlers.cmd_thinking import handle_thinking
 from .handlers.cmd_tools import handle_tools
 from .handlers.cmd_verbose import handle_verbose
 from .handlers.cmd_whitelist import handle_whitelist
@@ -27,8 +28,9 @@ from .handlers.router import Router
 from .security import Security
 
 
-_THINKING_EMOJIS = ["🤔", "💭", "🧠"]
-_THINKING_INTERVAL = 4.5
+_SPINNER_PREFIX = "Thinking"
+_SPINNER_FRAMES = [".", "..", "...", ".."]
+_SPINNER_INTERVAL = 0.8
 _GENERATING_HANDLERS = {handle_ai, handle_x, handle_persona, handle_custom}
 
 
@@ -43,6 +45,7 @@ def build_router() -> Router:
     router.register(".help", handle_help)
     router.register(".location", handle_location)
     router.register(".mymodel", handle_mymodel)
+    router.register(".thinking", handle_thinking, admin=True)
     router.register(".tools", handle_tools, admin=True)
     router.register(".verbose", handle_verbose, admin=True)
     router.register(".model", handle_model, admin=True)
@@ -92,47 +95,17 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
         pass
 
 
-async def thinking_indicator(matrix: MatrixClientWrapper, room_id: str, target_event_id: str) -> None:
-    """Add thinking emojis while the bot processes, then clean them up.
-
-    Emojis are added one at a time (🤔, 💭, 🧠) with a delay between each,
-    then all are redacted when the handler completes.
-
-    Args:
-        matrix: MatrixClientWrapper instance.
-        room_id: Target room ID.
-        target_event_id: The user's message event ID to react to.
-    """
-    # reaction_ids[i] is the currently-active reaction event id for _THINKING_EMOJIS[i],
-    # or None if that slot is temporarily redacted.
-    reaction_ids: list[Optional[str]] = [None] * len(_THINKING_EMOJIS)
+async def _thinking_animation(matrix: MatrixClientWrapper, room_id: str, event_id: str, label: str, render_fn) -> None:
+    """Cycle a dot-wave in the thinking placeholder by editing the message."""
     try:
-        # Phase 1: accumulate all three emojis with a delay between each.
-        for idx, emoji in enumerate(_THINKING_EMOJIS):
-            reaction_id = await matrix.send_reaction(room_id, target_event_id, emoji)
-            reaction_ids[idx] = reaction_id
-            await asyncio.sleep(_THINKING_INTERVAL)
-        # Phase 2: cycle — for each slot, redact briefly then re-add, in sequence.
-        idx = 0
-        half = _THINKING_INTERVAL / 2
+        idx = 1
         while True:
-            slot = idx % len(_THINKING_EMOJIS)
-            current = reaction_ids[slot]
-            if current:
-                await matrix.redact_event(room_id, current)
-            await asyncio.sleep(half)
-            new_id = await matrix.send_reaction(room_id, target_event_id, _THINKING_EMOJIS[slot])
-            if new_id:
-                reaction_ids[slot] = new_id
-            await asyncio.sleep(half)
+            await asyncio.sleep(_SPINNER_INTERVAL)
+            frame = _SPINNER_FRAMES[idx % len(_SPINNER_FRAMES)]
+            body = f"{label}\n{_SPINNER_PREFIX}{frame}"
+            await matrix.edit_message(room_id, event_id, body, html=render_fn(body))
             idx += 1
     except asyncio.CancelledError:
-        pending = [rid for rid in reaction_ids if rid]
-        if pending:
-            await asyncio.gather(
-                *(matrix.redact_event(room_id, rid) for rid in pending),
-                return_exceptions=True,
-            )
         raise
 
 
@@ -141,6 +114,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     ctx = AppContext(cfg)
     if cfg.llm.server_models:
         await ctx.refresh_models()
+    await ctx.probe_mcp_servers()
 
     router = build_router()
     ctx.log(f"Model set to {ctx.model}")
@@ -201,26 +175,25 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
             except Exception:
                 pass
             user_event_id = getattr(event, "event_id", None)
-            should_indicate = handler in _GENERATING_HANDLERS and user_event_id
+            should_indicate = handler in _GENERATING_HANDLERS and user_event_id and getattr(ctx, "thinking", False)
             if should_indicate:
-                indicator = asyncio.create_task(
-                    thinking_indicator(ctx.matrix, room.room_id, user_event_id)
+                label = f"**{sender_display}**:"
+                initial_body = f"{label}\n{_SPINNER_PREFIX}{_SPINNER_FRAMES[0]}"
+                placeholder_event_id = await ctx.matrix.send_text(
+                    room.room_id, initial_body, html=ctx.render(initial_body)
                 )
-                ctx.thinking_indicator = indicator
-            else:
-                indicator = None
+                ctx.thinking_placeholder_event_id = placeholder_event_id
+                ctx.thinking_placeholder_room_id = room.room_id
+                if placeholder_event_id:
+                    ctx.thinking_animation_task = asyncio.create_task(
+                        _thinking_animation(ctx.matrix, room.room_id, placeholder_event_id, label, ctx.render)
+                    )
             try:
                 result = handler(*args)
                 if asyncio.iscoroutine(result):
                     await result
             finally:
-                if indicator:
-                    indicator.cancel()
-                    try:
-                        await indicator
-                    except asyncio.CancelledError:
-                        pass
-                ctx.thinking_indicator = None
+                await ctx.clear_thinking_indicator()
         except Exception as exc:
             ctx.log(exc)
 

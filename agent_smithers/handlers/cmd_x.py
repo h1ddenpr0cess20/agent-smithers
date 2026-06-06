@@ -67,7 +67,4 @@ async def handle_x(ctx: Any, room_id: str, sender_id: str, sender_display: str, 
     ctx.history.add(room_id, target_user, "assistant", text)
     body = f"**{sender_display}**:\n{text}"
     html = ctx.render(body)
-    clear_indicator = getattr(ctx, "clear_thinking_indicator", None)
-    if clear_indicator:
-        await clear_indicator()
-    await ctx.matrix.send_text(room_id, body, html=html)
+    await ctx.send_response(room_id, body, html=html)
