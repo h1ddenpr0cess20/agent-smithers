@@ -25,12 +25,11 @@ class HistoryStore:
         *,
         prompt_suffix_extra: str = "",
         max_tokens: int = 8192,
-        history_size: Optional[int] = None,
         system_prompt: Optional[str] = None,
         store_path: Optional[str] = None,
         encryption_key: Optional[str] = None,
     ) -> None:
-        # Back-compat: allow alternate constructor via system_prompt/history_size
+        # Allow alternate constructor via system_prompt
         if system_prompt is not None:
             self.prompt_prefix = ""
             self.prompt_suffix = ""
@@ -43,7 +42,7 @@ class HistoryStore:
             self.prompt_suffix_extra = prompt_suffix_extra
             self.personality = personality
             self._fixed_system_prompt = None
-        self.max_tokens = history_size or max_tokens
+        self.max_tokens = max_tokens
         self._include_extra = True
         self._messages: Dict[str, Dict[str, List[Dict[str, str]]]] = {}
         self._locations: Dict[str, str] = {}  # user_id -> location

@@ -49,7 +49,7 @@ class AppContext:
             prompt_suffix=suffix,
             personality=cfg.llm.personality,
             prompt_suffix_extra=extra,
-            max_tokens=cfg.llm.history_size,
+            max_tokens=cfg.llm.history_tokens,
             store_path=cfg.matrix.store_path if cfg.llm.history_encryption_key else None,
             encryption_key=cfg.llm.history_encryption_key or None,
         )

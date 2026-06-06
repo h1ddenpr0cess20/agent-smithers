@@ -96,7 +96,7 @@ def test_set_verbose_false_includes_extra_suffix():
 
 
 def test_fixed_system_prompt_constructor():
-    hs = HistoryStore(system_prompt="Fixed prompt text", history_size=512)
+    hs = HistoryStore(system_prompt="Fixed prompt text", max_tokens=512)
     msgs = hs.get("!r", "@u")
     assert msgs[0]["content"] == "Fixed prompt text"
     assert hs.max_tokens == 512

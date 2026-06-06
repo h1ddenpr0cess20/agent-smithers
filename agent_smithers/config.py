@@ -86,7 +86,7 @@ class LLMConfig:
     tools: Dict[str, Any] = field(default_factory=dict)
     web_search_country: str = ""
     server_models: bool = True
-    history_size: int = 8192
+    history_tokens: int = 8192
     history_encryption_key: str = ""
     mcp_servers: Dict[str, Any] = field(default_factory=dict)
     timeout: int = 300
@@ -230,7 +230,7 @@ def load_config(path: Optional[str] = None) -> AppConfig:
         tools=tools,
         web_search_country=os.getenv("TOOLS_WEB_SEARCH_COUNTRY", "").strip().upper(),
         server_models=_parse_bool(os.getenv("SERVER_MODELS"), True),
-        history_size=int(os.getenv("HISTORY_SIZE", "8192")),
+        history_tokens=int(os.getenv("HISTORY_TOKENS", "8192")),
         history_encryption_key=os.getenv("HISTORY_ENCRYPTION_KEY", "").strip(),
         mcp_servers=_parse_json(os.getenv("MCP_SERVERS"), {}),
         timeout=int(
