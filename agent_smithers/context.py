@@ -49,7 +49,7 @@ class AppContext:
             prompt_suffix=suffix,
             personality=cfg.llm.personality,
             prompt_suffix_extra=extra,
-            max_items=cfg.llm.history_size,
+            max_tokens=cfg.llm.history_tokens,
             store_path=cfg.matrix.store_path if cfg.llm.history_encryption_key else None,
             encryption_key=cfg.llm.history_encryption_key or None,
         )
@@ -69,6 +69,7 @@ class AppContext:
         self.video_whitelist: set[str] = set(getattr(cfg.matrix, "video_whitelist", []))
         self.video_whitelist_enabled: bool = bool(self.video_whitelist)
         self.search_country_enabled: bool = bool(cfg.llm.web_search_country)
+        self.thinking: bool = bool(getattr(cfg, "thinking", False))
 
         self.llm = LLMClient(cfg)
         self.hosted_tools_by_provider, self._mcp_auto_approve = tooling.initialize_hosted_tools(self)
@@ -103,6 +104,9 @@ class AppContext:
 
     async def refresh_models(self) -> None:
         await tooling.refresh_models(self)
+
+    async def probe_mcp_servers(self) -> None:
+        await tooling.probe_mcp_servers(self)
 
     def _build_tools(self, provider: str) -> List[Dict[str, Any]]:
         return tooling.build_tools(self, provider)
@@ -326,3 +330,34 @@ class AppContext:
             tool_choice=tool_choice,
             thread_user=thread_user,
         )
+
+    async def _cancel_thinking_animation(self) -> None:
+        task = getattr(self, "thinking_animation_task", None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        self.thinking_animation_task = None
+
+    async def clear_thinking_indicator(self) -> None:
+        """Cancel the thinking animation and redact the placeholder (used on error)."""
+        await self._cancel_thinking_animation()
+        event_id = getattr(self, "thinking_placeholder_event_id", None)
+        room_id = getattr(self, "thinking_placeholder_room_id", None)
+        self.thinking_placeholder_event_id = None
+        self.thinking_placeholder_room_id = None
+        if event_id and room_id:
+            await self.matrix.redact_event(room_id, event_id)
+
+    async def send_response(self, room_id: str, body: str, html: Optional[str] = None) -> None:
+        """Send a reply, editing the thinking placeholder in-place if one exists."""
+        await self._cancel_thinking_animation()
+        event_id = getattr(self, "thinking_placeholder_event_id", None)
+        self.thinking_placeholder_event_id = None
+        self.thinking_placeholder_room_id = None
+        if event_id:
+            await self.matrix.edit_message(room_id, event_id, body, html=html)
+        else:
+            await self.matrix.send_text(room_id, body, html=html)

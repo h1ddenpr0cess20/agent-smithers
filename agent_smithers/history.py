@@ -24,13 +24,12 @@ class HistoryStore:
         personality: str = "",
         *,
         prompt_suffix_extra: str = "",
-        max_items: int = 24,
-        history_size: Optional[int] = None,
+        max_tokens: int = 8192,
         system_prompt: Optional[str] = None,
         store_path: Optional[str] = None,
         encryption_key: Optional[str] = None,
     ) -> None:
-        # Back-compat: allow alternate constructor via system_prompt/history_size
+        # Allow alternate constructor via system_prompt
         if system_prompt is not None:
             self.prompt_prefix = ""
             self.prompt_suffix = ""
@@ -43,7 +42,7 @@ class HistoryStore:
             self.prompt_suffix_extra = prompt_suffix_extra
             self.personality = personality
             self._fixed_system_prompt = None
-        self.max_items = history_size or max_items
+        self.max_tokens = max_tokens
         self._include_extra = True
         self._messages: Dict[str, Dict[str, List[Dict[str, str]]]] = {}
         self._locations: Dict[str, str] = {}  # user_id -> location
@@ -166,10 +165,15 @@ class HistoryStore:
         self._messages.clear()
         self._save()
 
+    @staticmethod
+    def count_tokens(msgs: List[Dict[str, str]]) -> int:
+        """Estimate token count for a list of messages using char-length heuristic."""
+        return sum(len(m.get("content", "")) for m in msgs) // 4
+
     def _trim(self, room: str, user: str) -> None:
-        """Trim a thread's messages to the configured max length."""
+        """Trim oldest messages until estimated token count is within the budget."""
         msgs = self._messages[room][user]
-        while len(msgs) > self.max_items:
+        while self.count_tokens(msgs) > self.max_tokens:
             if msgs and msgs[0].get("role") == "system":
                 if len(msgs) > 1:
                     msgs.pop(1)

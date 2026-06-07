@@ -32,6 +32,8 @@ class LLMClient:
     def _fallback_base_url(provider: str) -> str:
         if provider == "lmstudio":
             return "http://127.0.0.1:1234/v1"
+        if provider == "ollama":
+            return "http://127.0.0.1:11434/v1"
         if provider == "xai":
             return "https://api.x.ai/v1"
         return "https://api.openai.com/v1"
@@ -190,6 +192,8 @@ class LLMClient:
     @staticmethod
     def _is_chat_model(provider: str, model_id: str) -> bool:
         lowered = model_id.lower()
+        if provider == "ollama":
+            return bool(model_id.strip())
         if provider == "lmstudio":
             blocked_models = {
                 "text-embedding-nomic-embed-text-v1.5",
@@ -287,7 +291,8 @@ class LLMClient:
             for key, value in options.items():
                 if value is not None:
                     payload[key] = value
-        payload["store"] = False
+        if provider not in {"lmstudio", "ollama"}:
+            payload["store"] = False
         if provider == "xai" and any(
             isinstance(tool, dict) and tool.get("type") in {"web_search", "x_search"}
             for tool in (tools or [])

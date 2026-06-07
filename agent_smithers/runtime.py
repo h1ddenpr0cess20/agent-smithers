@@ -4,10 +4,13 @@ import asyncio
 import datetime as dt
 import json
 import signal
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from .config import AppConfig
 from .context import AppContext
+
+if TYPE_CHECKING:
+    from .matrix_client import MatrixClientWrapper
 from .handlers.cmd_ai import handle_ai
 from .handlers.cmd_country import handle_country
 from .handlers.cmd_help import handle_help
@@ -16,12 +19,19 @@ from .handlers.cmd_model import handle_model
 from .handlers.cmd_mymodel import handle_mymodel
 from .handlers.cmd_prompt import handle_custom, handle_persona
 from .handlers.cmd_reset import handle_clear, handle_reset
+from .handlers.cmd_thinking import handle_thinking
 from .handlers.cmd_tools import handle_tools
 from .handlers.cmd_verbose import handle_verbose
 from .handlers.cmd_whitelist import handle_whitelist
 from .handlers.cmd_x import handle_x
 from .handlers.router import Router
 from .security import Security
+
+
+_SPINNER_PREFIX = "Thinking"
+_SPINNER_FRAMES = [".", "..", "...", ".."]
+_SPINNER_INTERVAL = 0.8
+_GENERATING_HANDLERS = {handle_ai, handle_x, handle_persona, handle_custom}
 
 
 def build_router() -> Router:
@@ -35,6 +45,7 @@ def build_router() -> Router:
     router.register(".help", handle_help)
     router.register(".location", handle_location)
     router.register(".mymodel", handle_mymodel)
+    router.register(".thinking", handle_thinking, admin=True)
     router.register(".tools", handle_tools, admin=True)
     router.register(".verbose", handle_verbose, admin=True)
     router.register(".model", handle_model, admin=True)
@@ -84,11 +95,26 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
         pass
 
 
+async def _thinking_animation(matrix: MatrixClientWrapper, room_id: str, event_id: str, label: str, render_fn) -> None:
+    """Cycle a dot-wave in the thinking placeholder by editing the message."""
+    try:
+        idx = 1
+        while True:
+            await asyncio.sleep(_SPINNER_INTERVAL)
+            frame = _SPINNER_FRAMES[idx % len(_SPINNER_FRAMES)]
+            body = f"{label}\n{_SPINNER_PREFIX}{frame}"
+            await matrix.edit_message(room_id, event_id, body, html=render_fn(body))
+            idx += 1
+    except asyncio.CancelledError:
+        raise
+
+
 async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     """Run the Matrix bot runtime loop."""
     ctx = AppContext(cfg)
     if cfg.llm.server_models:
         await ctx.refresh_models()
+    await ctx.probe_mcp_servers()
 
     router = build_router()
     ctx.log(f"Model set to {ctx.model}")
@@ -148,9 +174,26 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
                 await security.allow_devices(sender)
             except Exception:
                 pass
-            result = handler(*args)
-            if asyncio.iscoroutine(result):
-                await result
+            user_event_id = getattr(event, "event_id", None)
+            should_indicate = handler in _GENERATING_HANDLERS and user_event_id and getattr(ctx, "thinking", False)
+            if should_indicate:
+                label = f"**{sender_display}**:"
+                initial_body = f"{label}\n{_SPINNER_PREFIX}{_SPINNER_FRAMES[0]}"
+                placeholder_event_id = await ctx.matrix.send_text(
+                    room.room_id, initial_body, html=ctx.render(initial_body)
+                )
+                ctx.thinking_placeholder_event_id = placeholder_event_id
+                ctx.thinking_placeholder_room_id = room.room_id
+                if placeholder_event_id:
+                    ctx.thinking_animation_task = asyncio.create_task(
+                        _thinking_animation(ctx.matrix, room.room_id, placeholder_event_id, label, ctx.render)
+                    )
+            try:
+                result = handler(*args)
+                if asyncio.iscoroutine(result):
+                    await result
+            finally:
+                await ctx.clear_thinking_indicator()
         except Exception as exc:
             ctx.log(exc)
 

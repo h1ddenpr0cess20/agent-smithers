@@ -2,15 +2,17 @@ from agent_smithers.history import HistoryStore
 
 
 def test_history_prompt_and_trim():
-    hs = HistoryStore("you are ", ".", "helper", max_items=5)
+    # 100-char messages ≈ 25 tokens each; budget of 50 → at most ~2 survive
+    hs = HistoryStore("you are ", ".", "helper", max_tokens=50)
     room = "!r:server"
     user = "@u:server"
     msgs = hs.get(room, user)
     assert msgs[0]["role"] == "system"
     for i in range(10):
-        hs.add(room, user, "user", f"m{i}")
+        hs.add(room, user, "user", "x" * 100)
     msgs = hs.get(room, user)
-    assert len(msgs) <= 5
+    total_tokens = sum(len(m.get("content", "")) for m in msgs) // 4
+    assert total_tokens <= 50
     assert msgs[0]["role"] in ("system", "user")
 
 
@@ -94,21 +96,23 @@ def test_set_verbose_false_includes_extra_suffix():
 
 
 def test_fixed_system_prompt_constructor():
-    hs = HistoryStore(system_prompt="Fixed prompt text", history_size=10)
+    hs = HistoryStore(system_prompt="Fixed prompt text", max_tokens=512)
     msgs = hs.get("!r", "@u")
     assert msgs[0]["content"] == "Fixed prompt text"
-    assert hs.max_items == 10
+    assert hs.max_tokens == 512
 
 
 def test_trim_preserves_system_message():
-    hs = HistoryStore("you are ", ".", "helper", max_items=3)
+    # Use 80-char messages (~20 tokens each); budget of 30 → trims down
+    hs = HistoryStore("you are ", ".", "helper", max_tokens=30)
     room, user = "!r", "@u"
-    hs.add(room, user, "user", "m1")
-    hs.add(room, user, "assistant", "r1")
-    hs.add(room, user, "user", "m2")
-    hs.add(room, user, "assistant", "r2")
+    hs.add(room, user, "user", "x" * 80)
+    hs.add(room, user, "assistant", "x" * 80)
+    hs.add(room, user, "user", "x" * 80)
+    hs.add(room, user, "assistant", "x" * 80)
     msgs = hs.get(room, user)
-    assert len(msgs) <= 3
+    total_tokens = sum(len(m.get("content", "")) for m in msgs) // 4
+    assert total_tokens <= 30
     assert msgs[0]["role"] == "system"
 
 

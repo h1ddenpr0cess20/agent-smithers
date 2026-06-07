@@ -42,9 +42,10 @@ def test_handle_ai_strips_think_markers_and_trims():
         assert thread_user == "@u"
         return content
 
+    matrix = FakeMatrix()
     ctx = SimpleNamespace(
-        history=HistoryStore("you are ", ".", "helper", max_items=8),
-        matrix=FakeMatrix(),
+        history=HistoryStore("you are ", ".", "helper", max_tokens=8192),
+        matrix=matrix,
         render=lambda s: None,
         model="gpt-4o",
         generate_reply=generate_reply,
@@ -52,6 +53,7 @@ def test_handle_ai_strips_think_markers_and_trims():
         log=lambda *a, **k: None,
         user_models={},
     )
+    ctx.send_response = matrix.send_text
     asyncio.run(handle_ai(ctx, "!r", "@u", "User", "hello"))
     sent_body = ctx.matrix.sent[-1][1]
     assert "<think>" not in sent_body
@@ -80,9 +82,10 @@ def test_handle_ai_with_empty_args_no_user_message_added():
         assert thread_user == "@u"
         return "response"
 
+    matrix = FakeMatrix()
     ctx = SimpleNamespace(
-        history=HistoryStore("you are ", ".", "helper", max_items=8),
-        matrix=FakeMatrix(),
+        history=HistoryStore("you are ", ".", "helper", max_tokens=8192),
+        matrix=matrix,
         render=lambda s: None,
         model="gpt-4o",
         generate_reply=generate_reply,
@@ -90,6 +93,7 @@ def test_handle_ai_with_empty_args_no_user_message_added():
         log=lambda *a, **k: None,
         user_models={},
     )
+    ctx.send_response = matrix.send_text
     asyncio.run(handle_ai(ctx, "!r", "@u", "User", ""))
     msgs = ctx.history.get("!r", "@u")
     user_msgs = [m for m in msgs if m["role"] == "user"]
@@ -103,7 +107,7 @@ def test_handle_ai_error_sends_error_message():
         raise RuntimeError("API failure")
 
     ctx = SimpleNamespace(
-        history=HistoryStore("you are ", ".", "helper", max_items=8),
+        history=HistoryStore("you are ", ".", "helper", max_tokens=8192),
         matrix=FakeMatrix(),
         render=lambda s: None,
         model="gpt-4o",
@@ -111,6 +115,7 @@ def test_handle_ai_error_sends_error_message():
         clean_response_text=lambda text, sender_display, sender_id: text.strip(),
         log=lambda *a, **k: None,
         user_models={},
+        clear_thinking_indicator=None,
     )
     asyncio.run(handle_ai(ctx, "!r", "@u", "User", "hello"))
     assert len(ctx.matrix.sent) == 1

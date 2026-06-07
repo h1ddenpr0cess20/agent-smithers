@@ -72,18 +72,48 @@ class MatrixClientWrapper:
         """Join a room by ID or alias."""
         await self.client.join(room_id)
 
-    async def send_text(self, room_id: str, body: str, html: Optional[str] = None) -> None:
+    async def send_text(self, room_id: str, body: str, html: Optional[str] = None) -> Optional[str]:
         """Send a text message, optionally with HTML formatting.
 
         Args:
             room_id: Target room ID.
             body: Plaintext body.
             html: Optional formatted body; when provided, sends custom HTML.
+
+        Returns:
+            The event ID of the sent message, or None on failure.
         """
         content = {"msgtype": "m.text", "body": body}
         if html is not None:
             content.update({"format": "org.matrix.custom.html", "formatted_body": html})
-        await self.client.room_send(room_id=room_id, message_type="m.room.message", content=content, ignore_unverified_devices=True)
+        try:
+            resp = await self.client.room_send(room_id=room_id, message_type="m.room.message", content=content, ignore_unverified_devices=True)
+            return getattr(resp, "event_id", None)
+        except Exception:
+            return None
+
+    async def edit_message(self, room_id: str, event_id: str, body: str, html: Optional[str] = None) -> None:
+        """Edit an existing message using the m.replace relation.
+
+        Args:
+            room_id: Target room ID.
+            event_id: Event ID of the message to replace.
+            body: New plain-text body.
+            html: Optional new HTML body.
+        """
+        new_content: dict = {"msgtype": "m.text", "body": body}
+        if html is not None:
+            new_content.update({"format": "org.matrix.custom.html", "formatted_body": html})
+        content = {
+            **new_content,
+            "body": f"* {body}",
+            "m.relates_to": {"rel_type": "m.replace", "event_id": event_id},
+            "m.new_content": new_content,
+        }
+        try:
+            await self.client.room_send(room_id=room_id, message_type="m.room.message", content=content, ignore_unverified_devices=True)
+        except Exception:
+            pass
 
     async def send_markdown(self, room_id: str, message: str) -> None:
         """Render Markdown to HTML and send as a message."""
@@ -147,6 +177,49 @@ class MatrixClientWrapper:
             return getattr(res, "displayname", user_id)
         except Exception:
             return user_id
+
+    async def send_reaction(self, room_id: str, event_id: str, key: str) -> Optional[str]:
+        """Send a reaction emoji to an event.
+
+        Args:
+            room_id: Target room ID.
+            event_id: Event ID to react to.
+            key: Emoji or unicode string to react with.
+
+        Returns:
+            The reaction event ID, or None on failure.
+        """
+        content = {
+            "m.relates_to": {
+                "rel_type": "m.annotation",
+                "event_id": event_id,
+                "key": key,
+            }
+        }
+        try:
+            resp = await self.client.room_send(
+                room_id=room_id,
+                message_type="m.reaction",
+                content=content,
+                ignore_unverified_devices=True,
+            )
+            return getattr(resp, "event_id", None)
+        except Exception as e:
+            import logging
+            logging.debug(f"Failed to send reaction {key} to {event_id}: {e}")
+            return None
+
+    async def redact_event(self, room_id: str, event_id: str) -> None:
+        """Redact (delete) an event by its ID.
+
+        Args:
+            room_id: Target room ID.
+            event_id: Event ID to redact.
+        """
+        try:
+            await self.client.room_redact(room_id=room_id, event_id=event_id)
+        except Exception:
+            pass
 
     def add_text_handler(self, handler: TextHandler) -> None:
         """Register a RoomMessageText callback that wraps your handler."""

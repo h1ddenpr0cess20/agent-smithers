@@ -31,6 +31,11 @@ class FakeAsyncClient:
 
     async def room_send(self, room_id=None, message_type=None, content=None, ignore_unverified_devices=None):
         self.last_send = SimpleNamespace(room_id=room_id, message_type=message_type, content=content)
+        if getattr(self, "fail_reaction", False) and message_type == "m.reaction":
+            raise Exception("Reaction failed")
+        if message_type == "m.reaction":
+            return SimpleNamespace(event_id=f"$reaction_{getattr(self, '_reaction_count', 0)}")
+        return SimpleNamespace(event_id=f"$event_{getattr(self, '_send_count', 0)}")
 
     async def upload(self, fp, content_type=None, filename=None, filesize=None):
         self.last_upload = SimpleNamespace(
@@ -43,6 +48,10 @@ class FakeAsyncClient:
 
     async def get_displayname(self, user_id):
         return SimpleNamespace(displayname=f"DN:{user_id}")
+
+    async def room_redact(self, room_id=None, event_id=None, reason=None):
+        self.last_redact = SimpleNamespace(room_id=room_id, event_id=event_id, reason=reason)
+        return SimpleNamespace()
 
     def add_event_callback(self, cb, event_type):
         self._callbacks.append((cb, event_type))
@@ -121,3 +130,71 @@ def test_matrix_client_wrapper_send_video(monkeypatch, tmp_path):
     assert w.client.last_upload.filename == "clip.mp4"
     assert w.client.last_send.content["msgtype"] == "m.video"
     assert w.client.last_send.content["body"] == "clip.mp4"
+
+
+def test_matrix_client_wrapper_send_reaction(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+
+    reaction_id = asyncio.run(w.send_reaction("!r", "$msg1", "🤔"))
+    assert reaction_id is not None
+    assert w.client.last_send.message_type == "m.reaction"
+    assert w.client.last_send.content["m.relates_to"]["event_id"] == "$msg1"
+    assert w.client.last_send.content["m.relates_to"]["key"] == "🤔"
+    assert w.client.last_send.content["m.relates_to"]["rel_type"] == "m.annotation"
+
+
+def test_matrix_client_wrapper_send_reaction_failure(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+    w.client.fail_reaction = True
+
+    reaction_id = asyncio.run(w.send_reaction("!r", "$msg1", "🤔"))
+    assert reaction_id is None
+
+
+def test_matrix_client_wrapper_redact_event(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+
+    asyncio.run(w.redact_event("!r", "$reaction1"))
+    assert w.client.last_redact.room_id == "!r"
+    assert w.client.last_redact.event_id == "$reaction1"
+
+
+def test_matrix_client_wrapper_redact_event_failure(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    class FakeAsyncClientWithFailure(FakeAsyncClient):
+        async def room_redact(self, room_id=None, event_id=None, reason=None):
+            raise Exception("Redaction failed")
+
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClientWithFailure)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+
+    asyncio.run(w.redact_event("!r", "$reaction1"))
+    # Should not raise, exception should be caught and logged

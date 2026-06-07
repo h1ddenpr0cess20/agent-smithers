@@ -7,7 +7,7 @@ from agent_smithers.history import HistoryStore
 class Ctx:
     def __init__(self):
         # Mirror reference prompt handling
-        self.history = HistoryStore(prompt_prefix="you are ", prompt_suffix=".", personality="helper", max_items=8)
+        self.history = HistoryStore(prompt_prefix="you are ", prompt_suffix=".", personality="helper", max_tokens=8192)
         self.bot_id = "Bot"
         self.model = "gpt-4o"
         self.default_model = "gpt-4o"
