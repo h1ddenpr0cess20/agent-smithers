@@ -64,8 +64,6 @@ class Router:
             return None, tuple()
         if bot_name:
             mention = f"{bot_name}:"
-            # Match the full mention prefix so multi-word display names
-            # (e.g. "Agent Smithers:") are recognized, not just the first token.
             if stripped == mention or stripped.startswith(mention):
                 mention_args = stripped[len(mention):].strip()
                 return self._handlers.get(".ai"), (ctx, room_id, sender_id, sender_display, mention_args)

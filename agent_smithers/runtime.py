@@ -197,7 +197,16 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
         except Exception as exc:
             ctx.log(exc)
 
+    async def on_undecrypted(room, event) -> None:
+        room_id = getattr(room, "room_id", None)
+        try:
+            await ctx.matrix.request_room_key(event)
+            ctx.log(f"Requested room key for undecryptable event in {room_id}")
+        except Exception:
+            ctx.logger.exception("Failed to request room key for %s", room_id)
+
     ctx.matrix.add_text_handler(on_text)
+    ctx.matrix.add_megolm_handler(on_undecrypted)
 
     stop = asyncio.Event()
     install_signal_handlers(stop)

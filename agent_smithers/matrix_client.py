@@ -5,7 +5,7 @@ import mimetypes
 import os
 from typing import Any, Awaitable, Callable, Optional
 
-from nio import AsyncClient, AsyncClientConfig, MatrixRoom, RoomMessageText, KeyVerificationEvent
+from nio import AsyncClient, AsyncClientConfig, MatrixRoom, MegolmEvent, RoomMessageText, KeyVerificationEvent
 
 from .markdown_utils import render_markdown
 
@@ -226,6 +226,19 @@ class MatrixClientWrapper:
         async def _cb(room: MatrixRoom, event: RoomMessageText) -> None:  # type: ignore
             await handler(room, event)
         self.client.add_event_callback(_cb, RoomMessageText)  # type: ignore
+
+    def add_megolm_handler(self, handler: TextHandler) -> None:
+        """Register a MegolmEvent callback for undecryptable encrypted messages."""
+        async def _cb(room: MatrixRoom, event: MegolmEvent) -> None:  # type: ignore
+            await handler(room, event)
+        self.client.add_event_callback(_cb, MegolmEvent)  # type: ignore
+
+    async def request_room_key(self, event: Any) -> None:
+        """Request the missing Megolm session key for an undecryptable event."""
+        try:
+            await self.client.request_room_key(event)
+        except Exception:
+            pass
 
     def add_to_device_callback(self, callback, event_types=None) -> None:
         """Register a to-device callback, ignoring errors when unsupported."""
