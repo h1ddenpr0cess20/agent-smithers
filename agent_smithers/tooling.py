@@ -20,11 +20,9 @@ XAI_IMAGE_ASPECT_RATIOS = [
 ]
 XAI_VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3"]
 XAI_VIDEO_RESOLUTIONS = ["480p", "720p"]
-OPENAI_SORA_SIZES = ["720x1280", "1280x720", "1024x1792", "1792x1024"]
 GROK_GENERATE_IMAGE_TOOL = "grok_generate_image"
 GROK_EDIT_IMAGE_TOOL = "grok_edit_image"
 GROK_GENERATE_VIDEO_TOOL = "grok_generate_video"
-SORA_GENERATE_VIDEO_TOOL = "sora_generate_video"
 
 
 _MCP_PROBE_TIMEOUT = 5.0
@@ -208,7 +206,6 @@ def build_tools(ctx: "AppContext", provider: str) -> List[Dict[str, Any]]:
 def build_local_media_tools(ctx: "AppContext", hosted_config: Dict[str, Any]) -> List[Dict[str, Any]]:
     tools: List[Dict[str, Any]] = []
     xai_available = bool(ctx.cfg.llm.api_keys.get("xai"))
-    openai_available = bool(ctx.cfg.llm.api_keys.get("openai"))
     if xai_available and hosted_config.get("image_generation", True) not in (None, False):
         tools.extend(
             [
@@ -329,39 +326,6 @@ def build_local_media_tools(ctx: "AppContext", hosted_config: Dict[str, Any]) ->
                                 "type": "string",
                                 "description": "Video output resolution.",
                                 "enum": XAI_VIDEO_RESOLUTIONS,
-                            },
-                        },
-                        "required": ["prompt"],
-                        "additionalProperties": False,
-                    },
-                }
-            )
-        if openai_available:
-            tools.append(
-                {
-                    "type": "function",
-                    "name": SORA_GENERATE_VIDEO_TOOL,
-                    "description": "Generate a new video or animate an image with OpenAI Sora.",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "prompt": {
-                                "type": "string",
-                                "description": "A detailed description of the video to create.",
-                            },
-                            "image_url": {
-                                "type": "string",
-                                "description": "Optional public URL or data URI for image-to-video generation.",
-                            },
-                            "seconds": {
-                                "type": "integer",
-                                "description": "Sora clip duration in seconds.",
-                                "enum": [4, 8, 12],
-                            },
-                            "size": {
-                                "type": "string",
-                                "description": "Sora output size in width x height format.",
-                                "enum": OPENAI_SORA_SIZES,
                             },
                         },
                         "required": ["prompt"],

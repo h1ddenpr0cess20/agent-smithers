@@ -16,14 +16,13 @@ from .tooling import (
     GROK_EDIT_IMAGE_TOOL,
     GROK_GENERATE_IMAGE_TOOL,
     GROK_GENERATE_VIDEO_TOOL,
-    SORA_GENERATE_VIDEO_TOOL,
 )
 
 
 INLINE_CITATION_RE = None
 IMAGE_GENERATION_TOOL_NAMES = {GROK_GENERATE_IMAGE_TOOL}
 IMAGE_EDIT_TOOL_NAMES = {GROK_EDIT_IMAGE_TOOL}
-VIDEO_GENERATION_TOOL_NAMES = {GROK_GENERATE_VIDEO_TOOL, SORA_GENERATE_VIDEO_TOOL}
+VIDEO_GENERATION_TOOL_NAMES = {GROK_GENERATE_VIDEO_TOOL}
 LOCAL_MEDIA_TOOL_NAMES = IMAGE_GENERATION_TOOL_NAMES | IMAGE_EDIT_TOOL_NAMES | VIDEO_GENERATION_TOOL_NAMES
 
 
@@ -91,10 +90,6 @@ def extract_text(response: Dict[str, Any]) -> str:
     if parts:
         return "\n".join(parts).strip()
     return str(response.get("output_text") or "")
-
-
-def _video_backend_label(provider: str) -> str:
-    return "Sora" if provider == "openai" else "Grok"
 
 
 def strip_inline_citations(text: str, annotations: Any = None) -> str:
@@ -438,7 +433,6 @@ async def handle_generate_image_calls(
                     thread_user=thread_user,
                     prompt=prompt,
                     args=args,
-                    provider="openai" if name == SORA_GENERATE_VIDEO_TOOL else "xai",
                 )
         except Exception:
             ctx.logger.exception("%s tool call failed", call.get("name"))
@@ -588,61 +582,41 @@ async def _execute_generate_video_call(
     thread_user: Optional[str],
     prompt: str,
     args: Dict[str, Any],
-    provider: str,
 ) -> str:
-    backend = "sora" if provider == "openai" else "grok"
     image_url = str(args.get("image_url") or "").strip() or None
     video_url = str(args.get("video_url") or "").strip() or None
     if not image_url and not video_url:
         image_url = ctx._latest_generated_media(room_id, thread_user, kind="image")
-        if not image_url and provider != "openai":
+        if not image_url:
             video_url = ctx._latest_generated_media(room_id, thread_user, kind="video")
     if image_url and video_url:
         raise ValueError("Only one of image_url or video_url may be provided")
     action = "Animating image" if image_url else "Editing video" if video_url else "Generating video"
-    backend_label = _video_backend_label(provider)
-    with ctx.status(f"{action} with {backend_label}") as status:
+    with ctx.status(f"{action} with Grok") as status:
         video_response = await ctx.llm.generate_video(
             prompt=prompt,
             model=model,
-            backend=backend,
+            backend="grok",
             image_url=image_url,
             video_url=video_url,
             duration=int(args["duration"]) if args.get("duration") is not None else None,
             aspect_ratio=str(args["aspect_ratio"]) if args.get("aspect_ratio") else None,
             resolution=str(args["resolution"]) if args.get("resolution") else None,
-            seconds=int(args["seconds"]) if args.get("seconds") is not None else None,
-            size=str(args["size"]) if args.get("size") else None,
             on_status=status.update,
         )
-        suffix = ".mp4"
-        if provider == "openai":
-            video_id = str(video_response.get("id") or "").strip()
-            if not video_id:
-                raise ValueError("Video response did not include a downloadable id")
-            ctx._remember_generated_media(
-                room_id,
-                thread_user,
-                kind="video",
-                reference=video_id,
-                mime_type="video/mp4",
-            )
-            status.update(f"Downloading video from {backend_label}")
-            video_bytes = await ctx.llm.download_video_content(video_id, provider=provider)
-        else:
-            final_url = _extract_video_url(video_response)
-            if not final_url:
-                raise ValueError("Video response did not include a downloadable URL")
-            suffix = _guess_media_suffix(final_url, ".mp4")
-            ctx._remember_generated_media(
-                room_id,
-                thread_user,
-                kind="video",
-                reference=final_url,
-                mime_type="video/mp4",
-            )
-            status.update(f"Downloading video from {backend_label}")
-            video_bytes = await ctx.llm.download_url(final_url, provider=provider)
+        final_url = _extract_video_url(video_response)
+        if not final_url:
+            raise ValueError("Video response did not include a downloadable URL")
+        suffix = _guess_media_suffix(final_url, ".mp4")
+        ctx._remember_generated_media(
+            room_id,
+            thread_user,
+            kind="video",
+            reference=final_url,
+            mime_type="video/mp4",
+        )
+        status.update("Downloading video from Grok")
+        video_bytes = await ctx.llm.download_url(final_url, provider="xai")
     path = ctx._write_artifact(video_bytes, suffix)
     try:
         if room_id:
