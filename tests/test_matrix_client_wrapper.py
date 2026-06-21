@@ -112,6 +112,26 @@ def test_matrix_client_wrapper_basic(monkeypatch):
     assert w.client._to_device_callbacks
 
 
+def test_matrix_client_wrapper_display_name_falls_back_on_none(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    class FakeAsyncClientNoDisplayName(FakeAsyncClient):
+        async def get_displayname(self, user_id):
+            return SimpleNamespace(displayname=None)
+
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClientNoDisplayName)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+
+    dn = asyncio.run(w.display_name("@user:example.org"))
+    assert dn == "@user:example.org"
+
+
 def test_matrix_client_wrapper_send_video(monkeypatch, tmp_path):
     monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)

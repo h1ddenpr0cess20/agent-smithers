@@ -58,13 +58,19 @@ class Router:
         Returns:
             Tuple of (callable or None, args tuple) suitable for ``handler(*args)``.
         """
-        parts = text.strip().split()
+        stripped = text.strip()
+        parts = stripped.split()
         if not parts:
             return None, tuple()
+        if bot_name:
+            mention = f"{bot_name}:"
+            # Match the full mention prefix so multi-word display names
+            # (e.g. "Agent Smithers:") are recognized, not just the first token.
+            if stripped == mention or stripped.startswith(mention):
+                mention_args = stripped[len(mention):].strip()
+                return self._handlers.get(".ai"), (ctx, room_id, sender_id, sender_display, mention_args)
         cmd = parts[0]
         args = " ".join(parts[1:])
-        if bot_name and cmd == f"{bot_name}:":
-            return self._handlers.get(".ai"), (ctx, room_id, sender_id, sender_display, args)
         if cmd in self._handlers:
             return self._handlers[cmd], (ctx, room_id, sender_id, sender_display, args)
         if is_admin and cmd in self._admin_handlers:

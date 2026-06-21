@@ -174,7 +174,7 @@ class MatrixClientWrapper:
         """Fetch a user's display name, falling back to user ID on error."""
         try:
             res = await self.client.get_displayname(user_id)
-            return getattr(res, "displayname", user_id)
+            return getattr(res, "displayname", None) or user_id
         except Exception:
             return user_id
 
