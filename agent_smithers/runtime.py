@@ -35,6 +35,7 @@ _GENERATING_HANDLERS = {handle_ai, handle_x, handle_persona, handle_custom}
 
 
 def build_router() -> Router:
+    """Build the command router with every command handler registered."""
     router = Router()
     router.register(".ai", handle_ai)
     router.register(".x", handle_x)
@@ -56,6 +57,11 @@ def build_router() -> Router:
 
 
 def persist_device_id(ctx: AppContext, config_path: Optional[str]) -> None:
+    """Write a freshly negotiated Matrix device_id back to the JSON config.
+
+    No-op unless the client has a device_id, the config has none recorded,
+    and a config path was provided. Failures are logged, not raised.
+    """
     try:
         device_id = getattr(ctx.matrix.client, "device_id", None)
         if device_id and hasattr(ctx.cfg.matrix, "device_id") and not ctx.cfg.matrix.device_id and config_path:
@@ -71,6 +77,7 @@ def persist_device_id(ctx: AppContext, config_path: Optional[str]) -> None:
 
 
 def register_security_callbacks(ctx: AppContext, security: Security) -> None:
+    """Register key-verification and to-device logging callbacks on the client."""
     try:
         from nio import KeyVerificationEvent  # type: ignore
     except ImportError:
@@ -84,6 +91,7 @@ def register_security_callbacks(ctx: AppContext, security: Security) -> None:
 
 
 def install_signal_handlers(stop: asyncio.Event) -> None:
+    """Install SIGINT/SIGTERM handlers that set the given stop event."""
     try:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -143,6 +151,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     join_time = dt.datetime.now()
 
     async def on_text(room, event) -> None:
+        """Dispatch an incoming text message to the matching command handler."""
         try:
             message_time = getattr(event, "server_timestamp", 0) / 1000.0
             message_time = dt.datetime.fromtimestamp(message_time)
@@ -198,6 +207,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
             ctx.log(exc)
 
     async def on_undecrypted(room, event) -> None:
+        """Request the missing room key for an undecryptable message."""
         room_id = getattr(room, "room_id", None)
         try:
             await ctx.matrix.request_room_key(event)

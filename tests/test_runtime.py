@@ -26,8 +26,6 @@ from agent_smithers.handlers.cmd_whitelist import handle_whitelist
 from agent_smithers.handlers.cmd_x import handle_x
 
 
-# --- build_router ---
-
 def test_build_router_registers_regular_commands():
     router = runtime.build_router()
     expected = {
@@ -85,8 +83,6 @@ def test_build_router_stock_dispatches_to_reset_with_stock(monkeypatch):
     assert captured["args"] == "stock"
 
 
-# --- persist_device_id ---
-
 def _ctx_with_device(device_id, configured_device_id, tmp_log=None):
     logs = tmp_log if tmp_log is not None else []
     return SimpleNamespace(
@@ -106,7 +102,6 @@ def test_persist_device_id_writes_when_missing(tmp_path):
 
     data = json.loads(config_file.read_text())
     assert data["matrix"]["device_id"] == "DEVICE123"
-    # Existing keys are preserved.
     assert data["matrix"]["username"] == "u"
 
 
@@ -135,7 +130,6 @@ def test_persist_device_id_skips_when_already_configured(tmp_path):
 
 def test_persist_device_id_skips_when_no_config_path(tmp_path):
     ctx = _ctx_with_device("DEVICE123", "")
-    # No path => nothing to write, and no exception.
     runtime.persist_device_id(ctx, None)
 
 
@@ -155,5 +149,4 @@ def test_persist_device_id_swallows_errors_on_bad_json(tmp_path):
     config_file.write_text("not valid json {{{")
     ctx = _ctx_with_device("DEVICE123", "")
 
-    # Should not raise even though json.load fails.
     runtime.persist_device_id(ctx, str(config_file))

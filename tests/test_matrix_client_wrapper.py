@@ -193,7 +193,6 @@ def test_matrix_client_wrapper_request_room_key_swallows_errors(monkeypatch):
         password="pw",
     )
 
-    # Should not raise.
     asyncio.run(w.request_room_key(SimpleNamespace()))
 
 
