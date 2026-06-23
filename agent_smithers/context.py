@@ -318,7 +318,7 @@ class AppContext:
         provider: str,
         thread_user: Optional[str] = None,
     ) -> bool:
-        """Extract and send any images/videos embedded in a model response.
+        """Extract and send any images embedded in a model response.
 
         Args:
             response: The decoded Responses API payload.
@@ -327,7 +327,7 @@ class AppContext:
             thread_user: Optional user id used to remember generated media.
 
         Returns:
-            ``True`` if at least one artifact was sent.
+            ``True`` if at least one image was sent.
         """
         return await responses.send_response_artifacts(
             self,
