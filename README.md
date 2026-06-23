@@ -1,6 +1,6 @@
 # Agent Smithers
 
-Agent Smithers is an agentic AI assistant for the Matrix chat protocol using the Responses API format for OpenAI, xAI, or local models through LM Studio. It keeps separate conversation history for each user, lets people choose their own models and personas.  It also supports search and code execution tools, remote MCP servers, and image or video features such as Grok Imagine and Sora.  It even has GPT-4o available, if you miss that model.  
+Agent Smithers is an agentic AI assistant for the Matrix chat protocol using the Responses API format for OpenAI, xAI, or local models through LM Studio. It keeps separate conversation history for each user, lets people choose their own models and personas.  It also supports search and code execution tools, remote MCP servers, and image or video features such as Grok Imagine.  It even has GPT-4o available, if you miss that model.  
 
 This is a fork of [inifinigpt-matrix](https://github.com/h1ddenpr0cess20/infinigpt-matrix)
 

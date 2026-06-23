@@ -1,3 +1,8 @@
+"""Handler for the ``.x`` command.
+
+Generates a one-off reply in the voice of an arbitrary named persona without
+disturbing the thread's standing personality.
+"""
 from __future__ import annotations
 
 from typing import Any

@@ -204,13 +204,13 @@ def test_generate_reply_uses_spinner_status_while_waiting_for_model_response():
 def test_generate_video_call_updates_spinner_status():
     class FakeVideoLLM:
         async def generate_video(self, **kwargs):
-            assert kwargs["backend"] == "sora"
-            kwargs["on_status"]("Generating video with Sora [queued]")
-            return {"id": "vid_123"}
+            assert kwargs["backend"] == "grok"
+            kwargs["on_status"]("Generating video with Grok [queued]")
+            return {"url": "https://cdn.example.com/out.mp4"}
 
-        async def download_video_content(self, video_id, *, provider):
-            assert video_id == "vid_123"
-            assert provider == "openai"
+        async def download_url(self, url, *, provider):
+            assert url == "https://cdn.example.com/out.mp4"
+            assert provider == "xai"
             return b"video-bytes"
 
     ctx = _ctx()
@@ -224,13 +224,13 @@ def test_generate_video_call_updates_spinner_status():
                     "output": [
                         {
                             "type": "function_call",
-                            "name": "sora_generate_video",
+                            "name": "grok_generate_video",
                             "call_id": "call_1",
                             "arguments": '{"prompt":"animate this"}',
                         }
                     ]
                 },
-                model="gpt-5-mini",
+                model="grok-4",
                 room_id="!r",
                 thread_user="@user:test",
             )
@@ -242,9 +242,9 @@ def test_generate_video_call_updates_spinner_status():
                 "output": "Video generated and sent.",
             }
         ]
-        assert ("enter", "Generating video with Sora") in events
-        assert ("update", "Generating video with Sora [queued]") in events
-        assert ("update", "Downloading video from Sora") in events
+        assert ("enter", "Generating video with Grok") in events
+        assert ("update", "Generating video with Grok [queued]") in events
+        assert ("update", "Downloading video from Grok") in events
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 
@@ -465,7 +465,6 @@ def test_dual_provider_tool_sets_follow_selected_model():
             "grok_generate_image",
             "grok_edit_image",
             "grok_generate_video",
-            "sora_generate_video",
         }
         assert {"type": "x_search"} not in openai_tools
         assert {"type": "x_search"} in xai_tools
@@ -1322,95 +1321,6 @@ def test_handle_generate_image_calls_supports_grok_generate_video():
             }
         ]
         assert len(ctx.matrix.sent_videos) == 1
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
-
-
-def test_handle_generate_image_calls_supports_sora_generate_video():
-    ctx = _ctx()
-    try:
-        class FakeMediaLLM:
-            async def generate_video(self, **payload):
-                assert payload["prompt"] == "animate this logo"
-                assert payload["image_url"] == "data:image/png;base64,c291cmNl"
-                assert payload["seconds"] == 8
-                assert payload["size"] == "1280x720"
-                assert payload["backend"] == "sora"
-                return {"id": "vid_openai"}
-
-            async def download_video_content(self, video_id, *, provider):
-                assert video_id == "vid_openai"
-                assert provider == "openai"
-                return b"openai-video"
-
-        ctx.llm = FakeMediaLLM()
-        ctx._remember_generated_media(
-            "!r",
-            "@u",
-            kind="image",
-            reference="data:image/png;base64,c291cmNl",
-            mime_type="image/png",
-        )
-        response = {
-            "output": [
-                {
-                    "type": "function_call",
-                    "name": "sora_generate_video",
-                    "call_id": "call_openai_video",
-                    "arguments": '{"prompt":"animate this logo","seconds":8,"size":"1280x720"}',
-                }
-            ]
-        }
-        output_items = asyncio.run(
-            ctx._handle_generate_image_calls(response, model="gpt-5-mini", room_id="!r", thread_user="@u")
-        )
-        assert output_items == [
-            {
-                "type": "function_call_output",
-                "call_id": "call_openai_video",
-                "output": "Video generated and sent.",
-            }
-        ]
-        assert len(ctx.matrix.sent_videos) == 1
-    finally:
-        ctx.executor.shutdown(wait=False, cancel_futures=True)
-
-
-def test_handle_generate_image_calls_supports_sora_generate_video_from_xai_model():
-    ctx = _ctx()
-    try:
-        class FakeMediaLLM:
-            async def generate_video(self, **payload):
-                assert payload["backend"] == "sora"
-                assert payload["model"] == "grok-4"
-                return {"id": "vid_cross_provider"}
-
-            async def download_video_content(self, video_id, *, provider):
-                assert video_id == "vid_cross_provider"
-                assert provider == "openai"
-                return b"openai-video"
-
-        ctx.llm = FakeMediaLLM()
-        response = {
-            "output": [
-                {
-                    "type": "function_call",
-                    "name": "sora_generate_video",
-                    "call_id": "call_sora_backend",
-                    "arguments": '{"prompt":"turn this into a product video","image_url":"data:image/png;base64,c291cmNl","seconds":4,"size":"1280x720"}',
-                }
-            ]
-        }
-        output_items = asyncio.run(
-            ctx._handle_generate_image_calls(response, model="grok-4", room_id="!r", thread_user="@u")
-        )
-        assert output_items == [
-            {
-                "type": "function_call_output",
-                "call_id": "call_sora_backend",
-                "output": "Video generated and sent.",
-            }
-        ]
     finally:
         ctx.executor.shutdown(wait=False, cancel_futures=True)
 

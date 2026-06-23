@@ -1,3 +1,10 @@
+"""Matrix device-verification and to-device event security callbacks.
+
+Provides the :class:`Security` helper that drives interactive emoji device
+verification and to-device event handling (auto-acknowledging verification
+requests and allowing a sender's devices) so encrypted rooms work without
+manual key management. Degrades gracefully when nio's E2E extras are absent.
+"""
 import logging
 from typing import Any, Optional
 
@@ -18,7 +25,13 @@ except ImportError:  # pragma: no cover
 
 
 class Security:
-    """Helpers for Matrix device verification and trust management."""
+    """Drives Matrix device verification and trust management.
+
+    Wraps a Matrix client to auto-respond to incoming key-verification
+    requests, complete the interactive emoji (SAS) verification exchange, and
+    mark a sender's devices as allowed so messages can be decrypted. All
+    methods are defensive and log rather than raise on failure.
+    """
 
     def __init__(self, matrix_client, logger: Optional[logging.Logger] = None) -> None:
         """Create a new Security helper.

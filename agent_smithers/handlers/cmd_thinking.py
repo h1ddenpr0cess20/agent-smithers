@@ -1,3 +1,8 @@
+"""Handler for the ``.thinking`` admin command.
+
+Views or toggles whether the bot posts an animated "thinking" placeholder
+message while it generates a reply.
+"""
 from __future__ import annotations
 
 from typing import Any

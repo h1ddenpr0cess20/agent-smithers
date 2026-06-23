@@ -1,3 +1,10 @@
+"""Matrix bot runtime: router wiring, event handlers, and the main loop.
+
+Hosts :func:`run`, which constructs the :class:`~agent_smithers.context.AppContext`,
+registers every command on the router, logs in and syncs the Matrix client,
+wires the text and undecryptable-message handlers (including the thinking
+placeholder lifecycle), and drives the sync loop until a stop signal arrives.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +42,16 @@ _GENERATING_HANDLERS = {handle_ai, handle_x, handle_persona, handle_custom}
 
 
 def build_router() -> Router:
+    """Build the command router with every command handler registered.
+
+    Registers the public commands (``.ai``, ``.x``, ``.persona``, ``.custom``,
+    ``.reset``, ``.stock``, ``.help``, ``.location``, ``.mymodel``) and the
+    admin-only commands (``.thinking``, ``.tools``, ``.verbose``, ``.model``,
+    ``.clear``, ``.whitelist``, ``.country``).
+
+    Returns:
+        A :class:`Router` with all handlers wired up.
+    """
     router = Router()
     router.register(".ai", handle_ai)
     router.register(".x", handle_x)
@@ -56,6 +73,11 @@ def build_router() -> Router:
 
 
 def persist_device_id(ctx: AppContext, config_path: Optional[str]) -> None:
+    """Write a freshly negotiated Matrix device_id back to the JSON config.
+
+    No-op unless the client has a device_id, the config has none recorded,
+    and a config path was provided. Failures are logged, not raised.
+    """
     try:
         device_id = getattr(ctx.matrix.client, "device_id", None)
         if device_id and hasattr(ctx.cfg.matrix, "device_id") and not ctx.cfg.matrix.device_id and config_path:
@@ -71,6 +93,16 @@ def persist_device_id(ctx: AppContext, config_path: Optional[str]) -> None:
 
 
 def register_security_callbacks(ctx: AppContext, security: Security) -> None:
+    """Register key-verification and to-device callbacks on the Matrix client.
+
+    Wires the emoji verification handler (when nio's E2E types are available)
+    and the general to-device logger. Import and registration failures are
+    swallowed so a client built without E2E support still runs.
+
+    Args:
+        ctx: Application context exposing the Matrix client wrapper.
+        security: The :class:`Security` helper providing the callbacks.
+    """
     try:
         from nio import KeyVerificationEvent  # type: ignore
     except ImportError:
@@ -84,6 +116,15 @@ def register_security_callbacks(ctx: AppContext, security: Security) -> None:
 
 
 def install_signal_handlers(stop: asyncio.Event) -> None:
+    """Install SIGINT/SIGTERM handlers that set the stop event.
+
+    Lets the runtime shut down cleanly on Ctrl-C or termination. Platforms or
+    contexts that do not support ``add_signal_handler`` (e.g. non-main
+    threads) are tolerated silently.
+
+    Args:
+        stop: Event set when an interrupt/terminate signal is received.
+    """
     try:
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
@@ -96,7 +137,21 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
 
 
 async def _thinking_animation(matrix: MatrixClientWrapper, room_id: str, event_id: str, label: str, render_fn) -> None:
-    """Cycle a dot-wave in the thinking placeholder by editing the message."""
+    """Animate the thinking placeholder by repeatedly editing its message.
+
+    Loops forever cycling a dot-wave suffix under ``label`` until cancelled;
+    the caller cancels the task when the real reply is ready.
+
+    Args:
+        matrix: Matrix client used to edit the placeholder message.
+        room_id: Room containing the placeholder.
+        event_id: Event id of the placeholder message to edit.
+        label: Static label shown above the animated dots.
+        render_fn: Callable rendering a body string to HTML.
+
+    Raises:
+        asyncio.CancelledError: Re-raised when the task is cancelled.
+    """
     try:
         idx = 1
         while True:
@@ -110,7 +165,18 @@ async def _thinking_animation(matrix: MatrixClientWrapper, room_id: str, event_i
 
 
 async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
-    """Run the Matrix bot runtime loop."""
+    """Run the Matrix bot until interrupted.
+
+    Builds the context and router, optionally refreshes models, probes MCP
+    servers, logs in, syncs, joins configured rooms, registers the text and
+    undecryptable-message handlers, and drives ``sync_forever`` until a stop
+    signal fires — then shuts the client and executor down.
+
+    Args:
+        cfg: The fully assembled application configuration.
+        config_path: Optional path to the JSON config, used to persist a
+            newly negotiated device id.
+    """
     ctx = AppContext(cfg)
     if cfg.llm.server_models:
         await ctx.refresh_models()
@@ -143,6 +209,17 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     join_time = dt.datetime.now()
 
     async def on_text(room, event) -> None:
+        """Handle one incoming room text event.
+
+        Ignores messages predating join time and the bot's own messages,
+        resolves the sender and admin status, dispatches to a command handler,
+        and manages the thinking placeholder around generating handlers. All
+        exceptions are logged rather than propagated to the sync loop.
+
+        Args:
+            room: The nio room the event arrived in.
+            event: The nio text message event.
+        """
         try:
             message_time = getattr(event, "server_timestamp", 0) / 1000.0
             message_time = dt.datetime.fromtimestamp(message_time)
@@ -197,7 +274,25 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
         except Exception as exc:
             ctx.log(exc)
 
+    async def on_undecrypted(room, event) -> None:
+        """Handle an undecryptable (Megolm) event by requesting its room key.
+
+        Asks the sender's devices to re-share the missing session key so the
+        message can be decrypted on a later sync. Failures are logged.
+
+        Args:
+            room: The nio room the event arrived in.
+            event: The undecryptable Megolm event.
+        """
+        room_id = getattr(room, "room_id", None)
+        try:
+            await ctx.matrix.request_room_key(event)
+            ctx.log(f"Requested room key for undecryptable event in {room_id}")
+        except Exception:
+            ctx.logger.exception("Failed to request room key for %s", room_id)
+
     ctx.matrix.add_text_handler(on_text)
+    ctx.matrix.add_megolm_handler(on_undecrypted)
 
     stop = asyncio.Event()
     install_signal_handlers(stop)

@@ -1,9 +1,23 @@
+"""Handler for the ``.model`` admin command.
+
+Displays the current model or switches the bot's globally active model,
+resolving the owning provider for a friendly confirmation message.
+"""
 from __future__ import annotations
 
 from typing import Any
 
 
 def _provider_label(provider: str) -> str:
+    """Return a human-friendly display label for a provider key.
+
+    Args:
+        provider: Internal provider key (e.g. ``"xai"``, ``"openai"``).
+
+    Returns:
+        A display label (``"xAI"``, ``"OpenAI"``) or the key unchanged when
+        no special-casing applies.
+    """
     if provider == "xai":
         return "xAI"
     if provider == "openai":

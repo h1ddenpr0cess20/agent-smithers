@@ -1,3 +1,10 @@
+"""Configuration loading, parsing, and validation.
+
+Reads settings from a ``.env`` file and the process environment, parses them
+into the :class:`MatrixConfig`/:class:`LLMConfig`/:class:`AppConfig`
+dataclasses (handling the legacy ``INFINIGPT_*`` variable names and Docker
+host rewriting), and validates the assembled result before the app starts.
+"""
 from __future__ import annotations
 
 import json
@@ -13,18 +20,48 @@ SUPPORTED_PROVIDERS = {"openai", "xai", "lmstudio", "ollama"}
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
+    """Parse a truthy string from the environment into a bool.
+
+    Args:
+        value: Raw string value, or ``None`` when the variable is unset.
+        default: Value to return when ``value`` is ``None``.
+
+    Returns:
+        ``True`` if the value is one of ``1``/``true``/``yes``/``on``
+        (case-insensitive), otherwise ``False`` (or ``default`` when unset).
+    """
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _parse_csv(value: str | None) -> List[str]:
+    """Parse a comma-separated string into a list of trimmed, non-empty items.
+
+    Args:
+        value: Raw comma-separated string, or ``None``.
+
+    Returns:
+        A list of trimmed entries, or an empty list when the value is empty.
+    """
     if not value:
         return []
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def _parse_json(value: str | None, default: Any) -> Any:
+    """Parse a JSON-encoded string, falling back to a default when empty.
+
+    Args:
+        value: Raw JSON string, or ``None``/empty for the default.
+        default: Value returned when ``value`` is empty.
+
+    Returns:
+        The decoded JSON object, or ``default`` when no value is provided.
+
+    Raises:
+        ConfigError: If ``value`` is present but not valid JSON.
+    """
     if not value:
         return default
     try:
@@ -34,7 +71,21 @@ def _parse_json(value: str | None, default: Any) -> Any:
 
 
 def load_env_file(path: Optional[str] = None) -> Dict[str, str]:
-    """Load simple KEY=VALUE pairs from an env file."""
+    """Load ``KEY=VALUE`` pairs from an env file into ``os.environ``.
+
+    Ignores blank lines and ``#`` comments, tolerates a leading ``export``,
+    and strips matching single/double quotes around values. Each parsed pair
+    is also exported into the process environment as a side effect.
+
+    Args:
+        path: Path to the env file; defaults to ``./.env`` when ``None``.
+
+    Returns:
+        A mapping of the keys/values that were loaded.
+
+    Raises:
+        ConfigError: If the env file does not exist.
+    """
     env_path = Path(path) if path else Path(".env")
     if not env_path.exists():
         raise ConfigError(f"Missing env file: {env_path}")
@@ -62,6 +113,21 @@ def load_env_file(path: Optional[str] = None) -> Dict[str, str]:
 
 @dataclass
 class MatrixConfig:
+    """Matrix connection, identity, and access-control settings.
+
+    Attributes:
+        server: Homeserver base URL.
+        username: Full Matrix user ID the bot logs in as.
+        password: Account password used for login.
+        channels: Room IDs/aliases the bot joins on startup.
+        admin: Legacy single-admin field retained for compatibility.
+        admins: User IDs or display names granted admin commands.
+        device_id: Persisted device ID; populated after first login.
+        store_path: Directory for the nio store and derived state.
+        e2e: Whether end-to-end encryption is enabled.
+        video_whitelist: Seed entries for the video-generation allowlist.
+    """
+
     server: str
     username: str
     password: str
@@ -76,6 +142,25 @@ class MatrixConfig:
 
 @dataclass
 class LLMConfig:
+    """Provider, model, prompt, tool, and history settings for the LLM layer.
+
+    Attributes:
+        models: Per-provider lists of usable model ids.
+        api_keys: Per-provider API keys (OpenAI/xAI/LM Studio).
+        default_model: The model selected at startup.
+        personality: Default persona woven into the system prompt.
+        prompt: ``[prefix, suffix, optional extra]`` prompt template parts.
+        base_urls: Per-provider base URL overrides (LM Studio/Ollama).
+        options: Extra Responses API request options.
+        tools: Hosted/local tool enable flags and overrides.
+        web_search_country: Two-letter country bias for search tools.
+        server_models: Whether to refresh model lists from providers.
+        history_tokens: Soft per-thread history token budget.
+        history_encryption_key: Fernet key enabling encrypted persistence.
+        mcp_servers: MCP server definitions keyed by label.
+        timeout: HTTP timeout (seconds) for provider requests.
+    """
+
     models: Dict[str, List[str]]
     api_keys: Dict[str, str]
     default_model: str
@@ -94,6 +179,15 @@ class LLMConfig:
 
 @dataclass
 class AppConfig:
+    """Top-level application config bundling the LLM and Matrix sections.
+
+    Attributes:
+        llm: The language-model configuration section.
+        matrix: The Matrix connection/identity section.
+        markdown: Whether replies are rendered as Markdown/HTML.
+        thinking: Whether the animated thinking placeholder is enabled.
+    """
+
     llm: LLMConfig
     matrix: MatrixConfig
     markdown: bool = True
@@ -101,6 +195,19 @@ class AppConfig:
 
 
 def provider_for_model(model: str, models: Dict[str, List[str]]) -> Optional[str]:
+    """Resolve which provider owns a model id.
+
+    Prefers an explicit match in the configured ``models`` map, then falls
+    back to prefix heuristics (``grok-`` → xAI, ``gpt-``/``o1``/``o3``/``o4``
+    → OpenAI).
+
+    Args:
+        model: Model identifier to resolve.
+        models: Mapping of provider key to its list of configured model ids.
+
+    Returns:
+        The provider key, or ``None`` if the model cannot be resolved.
+    """
     selected = str(model or "").strip()
     if not selected:
         return None
@@ -117,6 +224,18 @@ def provider_for_model(model: str, models: Dict[str, List[str]]) -> Optional[str
 
 
 def validate_config(cfg: AppConfig) -> Tuple[bool, List[str]]:
+    """Validate a fully assembled application config.
+
+    Checks that at least one provider is configured, that keyed providers
+    have their required API keys or base URLs, and that a default model is set.
+
+    Args:
+        cfg: The assembled application configuration to validate.
+
+    Returns:
+        A tuple of ``(ok, errors)`` where ``ok`` is ``True`` only when
+        ``errors`` is empty.
+    """
     errors: List[str] = []
 
     configured_providers = []
@@ -164,7 +283,19 @@ def validate_config(cfg: AppConfig) -> Tuple[bool, List[str]]:
 
 
 def _resolve_lmstudio_url(url: str) -> str:
-    """Replace localhost/127.0.0.1 with host.docker.internal when running inside Docker."""
+    """Rewrite a loopback LM Studio URL for use from inside a container.
+
+    When running inside Docker (detected via ``/.dockerenv``), ``localhost``
+    and ``127.0.0.1`` refer to the container, not the host, so they are
+    rewritten to ``host.docker.internal`` to reach an LM Studio on the host.
+
+    Args:
+        url: The configured LM Studio base URL (may be empty).
+
+    Returns:
+        The original URL unchanged outside Docker or when empty; otherwise the
+        host-rewritten URL.
+    """
     if not url or not Path("/.dockerenv").exists():
         return url
     return url.replace("127.0.0.1", "host.docker.internal").replace(
@@ -173,7 +304,18 @@ def _resolve_lmstudio_url(url: str) -> str:
 
 
 def load_config(path: Optional[str] = None) -> AppConfig:
-    """Load application config from a .env file and environment variables."""
+    """Assemble an :class:`AppConfig` from the env file and environment.
+
+    Loads the env file, parses every supported setting (models, API keys,
+    base URLs, prompt parts, tool toggles, history and MCP options, Matrix
+    connection details) applying defaults, and returns the populated config.
+
+    Args:
+        path: Path to the env file; defaults to ``./.env`` when ``None``.
+
+    Returns:
+        The fully populated application configuration.
+    """
     load_env_file(path)
 
     openai_models = _parse_csv(os.getenv("OPENAI_MODELS"))

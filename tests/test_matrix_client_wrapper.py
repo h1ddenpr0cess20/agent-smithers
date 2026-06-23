@@ -112,6 +112,90 @@ def test_matrix_client_wrapper_basic(monkeypatch):
     assert w.client._to_device_callbacks
 
 
+def test_matrix_client_wrapper_display_name_falls_back_on_none(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    class FakeAsyncClientNoDisplayName(FakeAsyncClient):
+        async def get_displayname(self, user_id):
+            return SimpleNamespace(displayname=None)
+
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClientNoDisplayName)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+
+    dn = asyncio.run(w.display_name("@user:example.org"))
+    assert dn == "@user:example.org"
+
+
+def test_matrix_client_wrapper_request_room_key(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    class FakeAsyncClientWithKeyReq(FakeAsyncClient):
+        async def request_room_key(self, event):
+            self.requested_key_for = event
+
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClientWithKeyReq)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+
+    sentinel = SimpleNamespace(event_id="$undecryptable")
+    asyncio.run(w.request_room_key(sentinel))
+    assert w.client.requested_key_for is sentinel
+
+
+def test_matrix_client_wrapper_megolm_handler(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+
+    seen = {}
+
+    async def handler(room, event):
+        seen["ok"] = (room, event)
+
+    w.add_megolm_handler(handler)
+    cb, event_type = w.client._callbacks[-1]
+    assert event_type is mc.MegolmEvent
+    room = SimpleNamespace(room_id="!r")
+    event = SimpleNamespace(event_id="$e")
+    asyncio.run(cb(room, event))
+    assert seen["ok"] == (room, event)
+
+
+def test_matrix_client_wrapper_request_room_key_swallows_errors(monkeypatch):
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)
+
+    class FakeAsyncClientKeyReqFails(FakeAsyncClient):
+        async def request_room_key(self, event):
+            raise Exception("no key request")
+
+    monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClientKeyReqFails)
+
+    w = mc.MatrixClientWrapper(
+        server="https://example.org",
+        username="@bot:example.org",
+        password="pw",
+    )
+
+    asyncio.run(w.request_room_key(SimpleNamespace()))
+
+
 def test_matrix_client_wrapper_send_video(monkeypatch, tmp_path):
     monkeypatch.setattr(mc, "AsyncClient", FakeAsyncClient)
     monkeypatch.setattr(mc, "AsyncClientConfig", FakeAsyncClientConfig)

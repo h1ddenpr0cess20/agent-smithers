@@ -1,3 +1,9 @@
+"""Command router mapping message prefixes and bot mentions to handlers.
+
+Defines :class:`Router`, the framework-agnostic dispatcher that turns an
+incoming message into a ``(handler, args)`` pair based on its leading command
+token or a direct bot mention, honoring admin-only registrations.
+"""
 from __future__ import annotations
 
 import datetime as _dt
@@ -15,7 +21,11 @@ class Router:
     """
 
     def __init__(self) -> None:
-        """Create a new, empty command router."""
+        """Initialize an empty router.
+
+        Sets up separate maps for regular and admin-only command handlers,
+        both empty until :meth:`register` is called.
+        """
         self._handlers: Dict[str, Callable] = {}
         self._admin_handlers: Dict[str, Callable] = {}
 
@@ -58,13 +68,17 @@ class Router:
         Returns:
             Tuple of (callable or None, args tuple) suitable for ``handler(*args)``.
         """
-        parts = text.strip().split()
+        stripped = text.strip()
+        parts = stripped.split()
         if not parts:
             return None, tuple()
+        if bot_name:
+            mention = f"{bot_name}:"
+            if stripped == mention or stripped.startswith(mention):
+                mention_args = stripped[len(mention):].strip()
+                return self._handlers.get(".ai"), (ctx, room_id, sender_id, sender_display, mention_args)
         cmd = parts[0]
         args = " ".join(parts[1:])
-        if bot_name and cmd == f"{bot_name}:":
-            return self._handlers.get(".ai"), (ctx, room_id, sender_id, sender_display, args)
         if cmd in self._handlers:
             return self._handlers[cmd], (ctx, room_id, sender_id, sender_display, args)
         if is_admin and cmd in self._admin_handlers:

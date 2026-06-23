@@ -1,35 +1,59 @@
+"""HTTP client for the OpenAI-compatible Responses API.
+
+Wraps the ``/responses``, image, video, file, and model-listing endpoints
+for every configured provider (OpenAI, xAI, LM Studio, Ollama), normalizing
+the per-provider quirks (instructions vs. inline system messages, citation
+include flags, fallback base URLs, and model filtering) behind a single
+:class:`LLMClient`.
+"""
 from __future__ import annotations
 
 import asyncio
-import base64
-import mimetypes
-from io import BytesIO
 import re
 import time
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
-from urllib.parse import urlparse
 
 import httpx
-from PIL import Image, ImageOps
 
 from .config import AppConfig, provider_for_model
 
 
 class LLMClient:
-    """Thin Responses API client for OpenAI-compatible providers."""
+    """HTTP client for the Responses API across OpenAI-compatible providers.
+
+    Exposes async methods for chat responses, image generation/editing, video
+    generation (with polling), file/URL downloads, and model listing. Each
+    call resolves the owning provider, applies per-provider base URLs, auth
+    headers, and payload quirks, and issues a one-shot ``httpx`` request.
+    """
 
     LMSTUDIO_FALLBACK_USER_PROMPT = "Please continue the conversation."
-    OPENAI_VIDEO_MODEL = "sora-2"
-    OPENAI_SORA_SIZES = ("720x1280", "1280x720", "1024x1792", "1792x1024")
     XAI_IMAGE_MODEL = "grok-imagine-image"
     XAI_VIDEO_MODEL = "grok-imagine-video"
     VIDEO_POLL_INTERVAL_SECONDS = 5.0
 
     def __init__(self, cfg: AppConfig) -> None:
+        """Store the application config used to resolve providers and auth.
+
+        Args:
+            cfg: Fully resolved application configuration. Only the ``llm``
+                section (base URLs, API keys, model map, timeout) is read.
+        """
         self.cfg = cfg
- 
+
     @staticmethod
     def _fallback_base_url(provider: str) -> str:
+        """Return the default API base URL for a provider.
+
+        Used when the provider has no explicit ``base_urls`` entry configured.
+
+        Args:
+            provider: Provider key (``"lmstudio"``, ``"ollama"``, ``"xai"``,
+                or anything else, which is treated as OpenAI).
+
+        Returns:
+            The default base URL, including the ``/v1`` suffix.
+        """
         if provider == "lmstudio":
             return "http://127.0.0.1:1234/v1"
         if provider == "ollama":
@@ -39,10 +63,30 @@ class LLMClient:
         return "https://api.openai.com/v1"
 
     def _base_url(self, provider: str) -> str:
+        """Resolve the base URL for a provider.
+
+        Args:
+            provider: Provider key to look up.
+
+        Returns:
+            The configured base URL for the provider, or the built-in
+            fallback when none is configured.
+        """
         configured = str(self.cfg.llm.base_urls.get(provider, "") or "").strip()
         return configured or self._fallback_base_url(provider)
 
     def _provider_for_model(self, model: str) -> str:
+        """Resolve which provider serves a given model id.
+
+        Args:
+            model: Model identifier to resolve.
+
+        Returns:
+            The provider key that owns ``model``.
+
+        Raises:
+            ValueError: If no configured provider lists the model.
+        """
         provider = provider_for_model(model, self.cfg.llm.models)
         if not provider:
             raise ValueError(f"Unable to resolve provider for model '{model}'")
@@ -50,10 +94,29 @@ class LLMClient:
 
     @staticmethod
     def _supports_instructions(provider: str) -> bool:
+        """Report whether a provider accepts a top-level ``instructions`` field.
+
+        xAI does not support it, so system content must be inlined into the
+        input items instead.
+
+        Args:
+            provider: Provider key to check.
+
+        Returns:
+            ``True`` for every provider except xAI.
+        """
         return provider != "xai"
 
     @staticmethod
     def _has_user_message(items: Iterable[Dict[str, Any]]) -> bool:
+        """Report whether the input items contain a non-empty user turn.
+
+        Args:
+            items: Iterable of Responses API input items.
+
+        Returns:
+            ``True`` if at least one ``user`` item has non-empty content.
+        """
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -66,6 +129,18 @@ class LLMClient:
         cls,
         items: Iterable[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        """Guarantee LM Studio input contains at least one user turn.
+
+        LM Studio rejects requests with no user message, so a fallback prompt
+        is appended when the history would otherwise leave one out.
+
+        Args:
+            items: Iterable of Responses API input items.
+
+        Returns:
+            A new list of items, with a fallback user turn appended only if
+            none was already present.
+        """
         final_items = [dict(item) for item in items if isinstance(item, dict)]
         if cls._has_user_message(final_items):
             return final_items
@@ -74,6 +149,16 @@ class LLMClient:
 
     @staticmethod
     def _merge_include_items(existing: Any, additions: Iterable[str]) -> List[str]:
+        """Merge ``include`` flag lists, preserving order and dropping dupes.
+
+        Args:
+            existing: The current ``include`` value (a list, or anything else
+                which is treated as empty).
+            additions: Extra include flags to append.
+
+        Returns:
+            A de-duplicated list combining existing and added flags in order.
+        """
         merged: List[str] = []
         seen = set()
         for value in existing if isinstance(existing, list) else []:
@@ -88,6 +173,14 @@ class LLMClient:
 
     @staticmethod
     def _xai_image_ref(url: str) -> Dict[str, Any]:
+        """Wrap an image URL in the reference shape xAI image edits expect.
+
+        Args:
+            url: Image URL or data URI to reference.
+
+        Returns:
+            An ``image_url``-typed reference dict.
+        """
         return {
             "type": "image_url",
             "url": url,
@@ -95,10 +188,29 @@ class LLMClient:
 
     @staticmethod
     def _xai_video_ref(url: str) -> Dict[str, Any]:
+        """Wrap an image URL in the reference shape xAI video generation expects.
+
+        Args:
+            url: Source image URL or data URI to animate.
+
+        Returns:
+            A reference dict carrying the URL.
+        """
         return {"url": url}
 
     @staticmethod
     def _has_video_url(payload: Dict[str, Any]) -> bool:
+        """Report whether a video response payload already carries a URL.
+
+        Checks the top-level ``url`` plus the nested ``video``/``result``/
+        ``output`` containers, so a completed result can short-circuit polling.
+
+        Args:
+            payload: Decoded JSON body from a video generation/poll response.
+
+        Returns:
+            ``True`` if a non-empty video URL is present anywhere checked.
+        """
         direct_url = payload.get("url")
         if isinstance(direct_url, str) and direct_url:
             return True
@@ -110,87 +222,37 @@ class LLMClient:
                     return True
         return False
 
-    @staticmethod
-    def _video_backend_label(provider: str) -> str:
-        return "Sora" if provider == "openai" else "Grok"
-
     def _headers(self, provider: str) -> Dict[str, str]:
+        """Build request headers for a provider, adding bearer auth if keyed.
+
+        Args:
+            provider: Provider key whose API key should be used.
+
+        Returns:
+            A headers dict with ``Content-Type`` and, when an API key is
+            configured, an ``Authorization`` bearer header.
+        """
         headers = {"Content-Type": "application/json"}
         api_key = str(self.cfg.llm.api_keys.get(provider, "") or "").strip()
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
         return headers
 
-    def _multipart_headers(self, provider: str) -> Dict[str, str]:
-        headers = self._headers(provider)
-        headers.pop("Content-Type", None)
-        return headers
-
-    @staticmethod
-    def _decode_data_uri(reference: str) -> Tuple[bytes, str]:
-        header, encoded = reference.split(",", 1)
-        mime_type = header.split(";", 1)[0].split(":", 1)[1] if ":" in header else "application/octet-stream"
-        return base64.b64decode(encoded), mime_type or "application/octet-stream"
-
-    async def _load_media_reference(
-        self,
-        reference: str,
-        *,
-        provider: Optional[str],
-        default_name: str,
-    ) -> Tuple[str, bytes, str]:
-        if reference.startswith("data:"):
-            payload, mime_type = self._decode_data_uri(reference)
-            extension = mimetypes.guess_extension(mime_type) or ""
-            filename = f"{default_name}{extension}" if extension else default_name
-            return filename, payload, mime_type
-        payload = await self.download_url(reference, provider=provider)
-        path = urlparse(reference).path
-        filename = path.rsplit("/", 1)[-1] or default_name
-        mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        return filename, payload, mime_type
-
-    @classmethod
-    def _parse_size(cls, size: str) -> Tuple[int, int]:
-        width_str, height_str = size.split("x", 1)
-        return int(width_str), int(height_str)
-
-    @classmethod
-    def _choose_openai_sora_size(cls, width: int, height: int, requested_size: Optional[str]) -> str:
-        if requested_size:
-            return requested_size
-        source_ratio = width / height if height else 1.0
-        candidates = []
-        for candidate in cls.OPENAI_SORA_SIZES:
-            candidate_width, candidate_height = cls._parse_size(candidate)
-            candidate_ratio = candidate_width / candidate_height if candidate_height else 1.0
-            candidates.append((abs(candidate_ratio - source_ratio), candidate))
-        candidates.sort(key=lambda item: item[0])
-        return candidates[0][1]
-
-    async def _prepare_openai_video_reference(
-        self,
-        reference: str,
-        *,
-        size: Optional[str],
-    ) -> Tuple[str, str, bytes, str]:
-        filename, payload, _mime_type = await self._load_media_reference(
-            reference,
-            provider=None,
-            default_name="input_reference",
-        )
-        with Image.open(BytesIO(payload)) as image:
-            source = image.convert("RGBA") if image.mode in {"RGBA", "LA", "P"} else image.convert("RGB")
-            selected_size = self._choose_openai_sora_size(source.width, source.height, size)
-            target_width, target_height = self._parse_size(selected_size)
-            resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
-            prepared = ImageOps.fit(source, (target_width, target_height), method=resampling)
-            output = BytesIO()
-            prepared.save(output, format="PNG")
-        return selected_size, f"{filename.rsplit('.', 1)[0]}.png", output.getvalue(), "image/png"
-
     @staticmethod
     def _is_chat_model(provider: str, model_id: str) -> bool:
+        """Classify whether a model id is a usable chat/response model.
+
+        Filters out embedding, image, video, audio, vision, and dated
+        snapshot variants per provider so :meth:`list_models` only surfaces
+        models that can drive the Responses API.
+
+        Args:
+            provider: Provider key owning the model.
+            model_id: Raw model identifier returned by the provider.
+
+        Returns:
+            ``True`` if the model can be used for chat/response generation.
+        """
         lowered = model_id.lower()
         if provider == "ollama":
             return bool(model_id.strip())
@@ -233,7 +295,22 @@ class LLMClient:
         *,
         include_system: bool = False,
     ) -> Tuple[Optional[str], List[Dict[str, str]]]:
-        """Convert chat-style history to Responses API instructions/input."""
+        """Split chat-style history into Responses API instructions and input.
+
+        System messages become the top-level ``instructions`` string unless
+        ``include_system`` is set, in which case they are kept inline as input
+        items (needed for providers that reject ``instructions``). Empty roles
+        or contents are skipped.
+
+        Args:
+            messages: Chat messages with ``role``/``content`` keys.
+            include_system: Keep system messages as input items instead of
+                folding them into the instructions string.
+
+        Returns:
+            A ``(instructions, input_items)`` tuple, where ``instructions`` is
+            ``None`` when there is no system content to surface.
+        """
         instructions: List[str] = []
         input_items: List[Dict[str, str]] = []
         for message in messages:
@@ -264,7 +341,29 @@ class LLMClient:
         options: Optional[Dict[str, Any]] = None,
         instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Build a Responses API request body."""
+        """Assemble a Responses API request body for a model.
+
+        Derives instructions/input from ``messages`` (or uses the explicit
+        ``input_items``), wires up tools and tool choice, applies provider
+        quirks (xAI inline system messages and citation ``include`` flags, the
+        LM Studio fallback user turn, ``store=False`` for hosted providers),
+        and merges any extra ``options``.
+
+        Args:
+            model: Target model id; determines the provider.
+            messages: Chat history to convert, or ``None`` when supplying
+                ``input_items`` directly.
+            tools: Tool definitions to attach.
+            tool_choice: Tool-choice policy; defaults to ``"auto"`` when tools
+                are present.
+            previous_response_id: Prior response id to continue from.
+            input_items: Pre-built input items, used instead of ``messages``.
+            options: Extra request options merged into the payload.
+            instructions: Explicit instructions overriding derived ones.
+
+        Returns:
+            The request body dict ready to POST to ``/responses``.
+        """
         provider = self._provider_for_model(model)
         payload: Dict[str, Any] = {"model": model}
         derived_instructions = instructions
@@ -315,7 +414,27 @@ class LLMClient:
         options: Optional[Dict[str, Any]] = None,
         instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create a response via the configured provider's Responses API."""
+        """POST a request to the provider's Responses API and return the body.
+
+        Builds the payload via :meth:`build_request_payload` and issues a
+        single ``httpx`` request with the provider's auth headers and timeout.
+
+        Args:
+            model: Target model id; determines the provider.
+            messages: Chat history to convert, or ``None`` with ``input_items``.
+            tools: Tool definitions to attach.
+            tool_choice: Tool-choice policy.
+            previous_response_id: Prior response id to continue from.
+            input_items: Pre-built input items, used instead of ``messages``.
+            options: Extra request options merged into the payload.
+            instructions: Explicit instructions overriding derived ones.
+
+        Returns:
+            The decoded JSON response body.
+
+        Raises:
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         provider = self._provider_for_model(model)
         payload = self.build_request_payload(
             model=model,
@@ -346,7 +465,24 @@ class LLMClient:
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Generate an image via xAI POST /v1/images/generations."""
+        """Generate one or more images via the xAI image API.
+
+        POSTs to ``/images/generations`` requesting base64 output.
+
+        Args:
+            prompt: Description of the image to generate.
+            model: Model used to resolve the provider unless overridden.
+            provider_override: Force a specific provider (e.g. ``"xai"``).
+            n: Number of images to generate.
+            aspect_ratio: Optional aspect-ratio hint.
+            resolution: Optional resolution hint.
+
+        Returns:
+            The decoded JSON response, with images under ``data``.
+
+        Raises:
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         provider = provider_override or self._provider_for_model(model)
         payload: Dict[str, Any] = {
             "model": self.XAI_IMAGE_MODEL,
@@ -378,7 +514,27 @@ class LLMClient:
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Edit one or more images via xAI POST /v1/images/edits."""
+        """Edit one or more source images via the xAI image API.
+
+        POSTs to ``/images/edits``; a single source is sent as ``image`` and
+        multiple sources as ``images``.
+
+        Args:
+            prompt: The edit instruction.
+            image_urls: Source image URLs or data URIs to edit.
+            model: Model used to resolve the provider unless overridden.
+            provider_override: Force a specific provider (e.g. ``"xai"``).
+            n: Number of output images to generate.
+            aspect_ratio: Optional aspect-ratio hint.
+            resolution: Optional resolution hint.
+
+        Returns:
+            The decoded JSON response, with images under ``data``.
+
+        Raises:
+            ValueError: If no non-empty image URL is provided.
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         provider = provider_override or self._provider_for_model(model)
         cleaned_urls = [url.strip() for url in image_urls if str(url).strip()]
         if not cleaned_urls:
@@ -414,6 +570,22 @@ class LLMClient:
         request_id: str,
         on_status: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
+        """Poll a pending video generation request until it resolves.
+
+        Args:
+            client: Open httpx client to reuse for the poll requests.
+            provider: Provider key (always xAI for video today).
+            request_id: Identifier of the in-flight generation request.
+            on_status: Optional callback invoked with a human-readable status
+                string on each poll iteration.
+
+        Returns:
+            The final response payload once the video is ready.
+
+        Raises:
+            RuntimeError: If generation ends in a terminal failure state.
+            TimeoutError: If the configured timeout elapses before completion.
+        """
         deadline = time.monotonic() + float(self.cfg.llm.timeout)
         while True:
             response = await client.get(
@@ -425,7 +597,7 @@ class LLMClient:
             status = str(payload.get("status") or "").strip().lower()
             if on_status:
                 label = status or "pending"
-                on_status(f"Generating video with {self._video_backend_label(provider)} [{label}]")
+                on_status(f"Generating video with Grok [{label}]")
             if status in {"done", "completed", "succeeded", "success"} or self._has_video_url(payload):
                 return payload
             if status in {"expired", "failed", "error", "cancelled"}:
@@ -445,57 +617,35 @@ class LLMClient:
         duration: Optional[int] = None,
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
-        seconds: Optional[int] = None,
-        size: Optional[str] = None,
         on_status: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
-        """Generate or edit a video via xAI or OpenAI Sora."""
-        provider = self._provider_for_model(model)
-        backend_name = str(backend or "").strip().lower()
-        if backend_name in {"grok", "xai"}:
-            provider = "xai"
-        elif backend_name in {"sora", "openai"}:
-            provider = "openai"
-        if provider == "openai":
-            if video_url:
-                raise ValueError("OpenAI Sora remix is not implemented in this client")
-            multipart_fields: List[Tuple[str, Tuple[Optional[str], Any, Optional[str]]]] = [
-                ("model", (None, self.OPENAI_VIDEO_MODEL, None)),
-                ("prompt", (None, prompt, None)),
-            ]
-            if seconds is not None:
-                multipart_fields.append(("seconds", (None, str(seconds), None)))
-            if image_url:
-                selected_size, filename, payload, mime_type = await self._prepare_openai_video_reference(
-                    image_url,
-                    size=size,
-                )
-                size = selected_size
-                multipart_fields.append(("input_reference", (filename, payload, mime_type)))
-            if size:
-                multipart_fields.append(("size", (None, size, None)))
-            async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
-                response = await client.post(
-                    f"{self._base_url(provider)}/videos",
-                    headers=self._multipart_headers(provider),
-                    files=multipart_fields,
-                )
-                response.raise_for_status()
-                created = response.json()
-                status = str(created.get("status") or "").strip().lower()
-                if status in {"done", "completed", "succeeded", "success"}:
-                    return created
-                request_id = str(created.get("id") or "").strip()
-                if not request_id:
-                    raise RuntimeError("OpenAI video response did not include an id")
-                if on_status:
-                    on_status(f"Generating video with {self._video_backend_label(provider)} [{status or 'queued'}]")
-                return await self._poll_video_generation(
-                    client=client,
-                    provider=provider,
-                    request_id=request_id,
-                    on_status=on_status,
-                )
+        """Generate or edit a video via xAI Grok Imagine.
+
+        POSTs to ``/videos/generations`` and, when the result is not
+        immediately ready, polls until completion via
+        :meth:`_poll_video_generation`. A ``video_url`` triggers an edit;
+        otherwise an optional ``image_url`` drives image-to-video.
+
+        Args:
+            prompt: Description of the video to create.
+            model: Model id (provider is always xAI for video).
+            backend: Accepted for compatibility and ignored.
+            image_url: Optional source image for image-to-video.
+            video_url: Optional source video to edit/remix.
+            duration: Optional clip duration in seconds.
+            aspect_ratio: Optional aspect-ratio hint.
+            resolution: Optional resolution hint.
+            on_status: Optional callback invoked with status strings.
+
+        Returns:
+            The final video payload once generation completes.
+
+        Raises:
+            RuntimeError: If the response lacks a request id to poll.
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
+        del backend
+        provider = "xai"
         payload: Dict[str, Any] = {
             "model": self.XAI_VIDEO_MODEL,
             "prompt": prompt,
@@ -526,24 +676,13 @@ class LLMClient:
             if not request_id:
                 raise RuntimeError("Video generation response did not include a request id")
             if on_status:
-                on_status(f"Generating video with {self._video_backend_label(provider)} [{status or 'queued'}]")
+                on_status(f"Generating video with Grok [{status or 'queued'}]")
             return await self._poll_video_generation(
                 client=client,
                 provider=provider,
                 request_id=request_id,
                 on_status=on_status,
             )
-
-    async def download_video_content(self, video_id: str, *, provider: str) -> bytes:
-        """Download a generated video from a provider-specific content endpoint."""
-        if provider == "openai":
-            url = f"{self._base_url(provider)}/videos/{video_id}/content"
-        else:
-            url = f"{self._base_url(provider)}/videos/{video_id}/content"
-        async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
-            response = await client.get(url, headers=self._headers(provider))
-            response.raise_for_status()
-            return response.content
 
     async def download_file(
         self,
@@ -552,7 +691,22 @@ class LLMClient:
         provider: str,
         container_id: Optional[str] = None,
     ) -> bytes:
-        """Download a file or container file returned by a hosted tool."""
+        """Download a hosted-tool output file by id.
+
+        Targets the container file endpoint when ``container_id`` is given
+        (code-interpreter outputs), otherwise the plain files endpoint.
+
+        Args:
+            file_id: Identifier of the file to download.
+            provider: Provider that produced the file.
+            container_id: Optional code-interpreter container id.
+
+        Returns:
+            The raw file bytes.
+
+        Raises:
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         if container_id:
             url = f"{self._base_url(provider)}/containers/{container_id}/files/{file_id}/content"
         else:
@@ -563,7 +717,21 @@ class LLMClient:
             return response.content
 
     async def download_url(self, url: str, *, provider: Optional[str] = None) -> bytes:
-        """Download a direct media URL, using provider auth only for first-party URLs."""
+        """Download bytes from a direct media URL.
+
+        Provider auth headers are attached only when the URL belongs to that
+        provider's base URL, so third-party CDN links are fetched anonymously.
+
+        Args:
+            url: The media URL to download.
+            provider: Optional provider whose auth applies to first-party URLs.
+
+        Returns:
+            The raw downloaded bytes.
+
+        Raises:
+            httpx.HTTPStatusError: If the server returns a non-2xx status.
+        """
         headers: Optional[Dict[str, str]] = None
         if provider and url.startswith(self._base_url(provider)):
             headers = self._headers(provider)
@@ -573,7 +741,21 @@ class LLMClient:
             return response.content
 
     async def list_models(self, provider: str) -> List[str]:
-        """List response-capable models from the requested provider."""
+        """List the response-capable models offered by a provider.
+
+        Fetches ``/models`` and filters out non-chat variants (embeddings,
+        image/video/audio, dated snapshots) via :meth:`_is_chat_model`,
+        falling back to the full id set if filtering leaves nothing.
+
+        Args:
+            provider: Provider whose models to list.
+
+        Returns:
+            A sorted list of usable model ids.
+
+        Raises:
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
             response = await client.get(
                 f"{self._base_url(provider)}/models",

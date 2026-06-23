@@ -1,3 +1,8 @@
+"""Handler for the ``.whitelist`` admin command.
+
+Adds, removes, or lists users on the video-generation allowlist, and enables
+the allowlist automatically when the first entry is added.
+"""
 from __future__ import annotations
 
 from typing import Any

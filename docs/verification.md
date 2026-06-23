@@ -13,6 +13,7 @@ This page explains how device verification works for the bot, why it matters, ho
 - Auto‑accepts and completes SAS (emoji) flows: upon `start` and `key` events, the bot accepts, shares its key, logs the emojis to the console, confirms the short auth string, and sends MAC/done to conclude.
 - Best‑effort device allowance: before responding to a user, the bot queries device lists and attempts to mark unverified sender devices as verified to avoid blocked sends.
 - Sends while ignoring unverified devices: outbound messages set `ignore_unverified_devices=True` to reduce failures in partially verified rooms.
+- Recovers undecryptable messages: when an encrypted message arrives that the bot cannot decrypt (missing Megolm session), it requests the missing room key so later messages in the session can be read.
 
 Notes:
 

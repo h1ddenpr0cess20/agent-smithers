@@ -1,3 +1,10 @@
+"""Command-line interface: argument parsing, config loading, and startup.
+
+Defines the ``agent-smithers`` console entry point. Builds the argument
+parser, handles the standalone ``--init`` and ``--generate-key`` utility
+modes, loads configuration from the resolved env file (applying CLI
+overrides), and launches the async runtime via :func:`agent_smithers.app.run`.
+"""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +20,21 @@ from .app import run as run_app
 
 
 def _env_with_legacy(primary: str, legacy: str, default: str) -> str:
-    """Read a rebranded env var with fallback to the legacy name."""
+    """Read an environment variable, falling back to a legacy variable name.
+
+    Supports the rebrand from the old ``INFINIGPT_*`` variable names to the
+    current ``AGENT_SMITHERS_*`` names without breaking existing setups.
+
+    Args:
+        primary: The current (preferred) environment variable name.
+        legacy: The deprecated variable name to consult when ``primary`` is
+            unset.
+        default: Value returned when neither variable is set.
+
+    Returns:
+        The first value found among ``primary`` then ``legacy``, else
+        ``default``.
+    """
     return os.getenv(primary, os.getenv(legacy, default))
 
 

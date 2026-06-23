@@ -24,6 +24,26 @@ def test_router_dispatch_botname():
     assert args[-1] == "hi"
 
 
+def test_router_dispatch_botname_multiword():
+    r = Router()
+    async def h(ctx, room, sender, display, args):
+        pass
+    r.register(".ai", h)
+    fn, args = r.dispatch(object(), "!r", "@u", "User", "Agent Smithers: hi there", False, bot_name="Agent Smithers")
+    assert fn is h
+    assert args[-1] == "hi there"
+
+
+def test_router_dispatch_botname_multiword_only_mention():
+    r = Router()
+    async def h(ctx, room, sender, display, args):
+        pass
+    r.register(".ai", h)
+    fn, args = r.dispatch(object(), "!r", "@u", "User", "Agent Smithers:", False, bot_name="Agent Smithers")
+    assert fn is h
+    assert args[-1] == ""
+
+
 def test_router_dispatch_empty_text():
     r = Router()
     async def h(ctx, room, sender, display, args):
