@@ -1,3 +1,4 @@
+"""Custom exception types raised across the application."""
 class ConfigError(Exception):
     """Raised when configuration is invalid or missing required fields."""
 

@@ -1,3 +1,4 @@
+"""Handler for the ``.tools`` admin command: toggle hosted/local tool use."""
 from __future__ import annotations
 
 from typing import Any

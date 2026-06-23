@@ -1,3 +1,4 @@
+"""Command router mapping message prefixes and bot mentions to handlers."""
 from __future__ import annotations
 
 import datetime as _dt

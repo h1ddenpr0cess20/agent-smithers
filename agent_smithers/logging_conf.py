@@ -1,3 +1,10 @@
+"""Logging setup and Rich-backed status spinners for the console.
+
+Provides :func:`setup_logging`/:func:`configure_logging` to install a
+syntax-highlighting console logger, plus :func:`spinner_status` and the
+``_NoopStatus``/``_RichStatus`` context managers used to show transient
+progress spinners aligned with the log output.
+"""
 import logging
 import logging.config
 import re
@@ -12,12 +19,23 @@ class _NoopStatus:
     """Fallback status object when Rich status output is unavailable."""
 
     def __init__(self, message: str) -> None:
+        """Store the initial status message.
+
+        Args:
+            message: The status text this no-op spinner reports.
+        """
         self.message = message
 
     def __enter__(self) -> "_NoopStatus":
+        """Enter the context manager, returning self."""
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
+        """Exit the context manager without suppressing exceptions.
+
+        Returns:
+            ``False`` so any in-flight exception propagates.
+        """
         del exc_type, exc, tb
         return False
 
@@ -29,6 +47,14 @@ class _NoopStatus:
         spinner_style: Optional[str] = None,
         speed: Optional[float] = None,
     ) -> None:
+        """Update the stored message; spinner styling args are ignored.
+
+        Args:
+            status: New status text, if provided.
+            spinner: Ignored (no spinner is rendered).
+            spinner_style: Ignored.
+            speed: Ignored.
+        """
         del spinner, spinner_style, speed
         if status:
             self.message = status
@@ -38,6 +64,13 @@ class _RichStatus:
     """Rich-backed spinner aligned with the log message content column."""
 
     def __init__(self, console: Any, message: str, *, spinner: str) -> None:
+        """Build a live, padded Rich status spinner.
+
+        Args:
+            console: The Rich console to render on.
+            message: Initial status text.
+            spinner: Name of the Rich spinner animation to use.
+        """
         from rich.live import Live
         from rich.padding import Padding
         from rich.status import Status
@@ -52,13 +85,24 @@ class _RichStatus:
         )
 
     def _renderable(self) -> Any:
+        """Return the status wrapped in left padding to align with log text.
+
+        Returns:
+            A Rich renderable padding the spinner to the content column.
+        """
         return self._padding(self._status, (0, 0, 0, _STATUS_CONTENT_PADDING))
 
     def __enter__(self) -> "_RichStatus":
+        """Start the live display and return self."""
         self._live.start()
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
+        """Stop the live display without suppressing exceptions.
+
+        Returns:
+            ``False`` so any in-flight exception propagates.
+        """
         self._live.stop()
         del exc_type, exc, tb
         return False
@@ -71,6 +115,14 @@ class _RichStatus:
         spinner_style: Optional[str] = None,
         speed: Optional[float] = None,
     ) -> None:
+        """Update the spinner's status text and styling, then refresh.
+
+        Args:
+            status: New status text, if provided.
+            spinner: New spinner animation name, if changing.
+            spinner_style: New spinner style, if changing.
+            speed: New spinner speed, if changing.
+        """
         self._status.update(
             status=status,
             spinner=spinner,

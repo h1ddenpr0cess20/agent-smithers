@@ -1,3 +1,11 @@
+"""HTTP client for the OpenAI-compatible Responses API.
+
+Wraps the ``/responses``, image, video, file, and model-listing endpoints
+for every configured provider (OpenAI, xAI, LM Studio, Ollama), normalizing
+the per-provider quirks (instructions vs. inline system messages, citation
+include flags, fallback base URLs, and model filtering) behind a single
+:class:`LLMClient`.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -19,10 +27,27 @@ class LLMClient:
     VIDEO_POLL_INTERVAL_SECONDS = 5.0
 
     def __init__(self, cfg: AppConfig) -> None:
+        """Store the application config used to resolve providers and auth.
+
+        Args:
+            cfg: Fully resolved application configuration. Only the ``llm``
+                section (base URLs, API keys, model map, timeout) is read.
+        """
         self.cfg = cfg
- 
+
     @staticmethod
     def _fallback_base_url(provider: str) -> str:
+        """Return the default API base URL for a provider.
+
+        Used when the provider has no explicit ``base_urls`` entry configured.
+
+        Args:
+            provider: Provider key (``"lmstudio"``, ``"ollama"``, ``"xai"``,
+                or anything else, which is treated as OpenAI).
+
+        Returns:
+            The default base URL, including the ``/v1`` suffix.
+        """
         if provider == "lmstudio":
             return "http://127.0.0.1:1234/v1"
         if provider == "ollama":
@@ -32,10 +57,30 @@ class LLMClient:
         return "https://api.openai.com/v1"
 
     def _base_url(self, provider: str) -> str:
+        """Resolve the base URL for a provider.
+
+        Args:
+            provider: Provider key to look up.
+
+        Returns:
+            The configured base URL for the provider, or the built-in
+            fallback when none is configured.
+        """
         configured = str(self.cfg.llm.base_urls.get(provider, "") or "").strip()
         return configured or self._fallback_base_url(provider)
 
     def _provider_for_model(self, model: str) -> str:
+        """Resolve which provider serves a given model id.
+
+        Args:
+            model: Model identifier to resolve.
+
+        Returns:
+            The provider key that owns ``model``.
+
+        Raises:
+            ValueError: If no configured provider lists the model.
+        """
         provider = provider_for_model(model, self.cfg.llm.models)
         if not provider:
             raise ValueError(f"Unable to resolve provider for model '{model}'")
@@ -43,10 +88,29 @@ class LLMClient:
 
     @staticmethod
     def _supports_instructions(provider: str) -> bool:
+        """Report whether a provider accepts a top-level ``instructions`` field.
+
+        xAI does not support it, so system content must be inlined into the
+        input items instead.
+
+        Args:
+            provider: Provider key to check.
+
+        Returns:
+            ``True`` for every provider except xAI.
+        """
         return provider != "xai"
 
     @staticmethod
     def _has_user_message(items: Iterable[Dict[str, Any]]) -> bool:
+        """Report whether the input items contain a non-empty user turn.
+
+        Args:
+            items: Iterable of Responses API input items.
+
+        Returns:
+            ``True`` if at least one ``user`` item has non-empty content.
+        """
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -59,6 +123,18 @@ class LLMClient:
         cls,
         items: Iterable[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        """Guarantee LM Studio input contains at least one user turn.
+
+        LM Studio rejects requests with no user message, so a fallback prompt
+        is appended when the history would otherwise leave one out.
+
+        Args:
+            items: Iterable of Responses API input items.
+
+        Returns:
+            A new list of items, with a fallback user turn appended only if
+            none was already present.
+        """
         final_items = [dict(item) for item in items if isinstance(item, dict)]
         if cls._has_user_message(final_items):
             return final_items
@@ -67,6 +143,16 @@ class LLMClient:
 
     @staticmethod
     def _merge_include_items(existing: Any, additions: Iterable[str]) -> List[str]:
+        """Merge ``include`` flag lists, preserving order and dropping dupes.
+
+        Args:
+            existing: The current ``include`` value (a list, or anything else
+                which is treated as empty).
+            additions: Extra include flags to append.
+
+        Returns:
+            A de-duplicated list combining existing and added flags in order.
+        """
         merged: List[str] = []
         seen = set()
         for value in existing if isinstance(existing, list) else []:
@@ -81,6 +167,14 @@ class LLMClient:
 
     @staticmethod
     def _xai_image_ref(url: str) -> Dict[str, Any]:
+        """Wrap an image URL in the reference shape xAI image edits expect.
+
+        Args:
+            url: Image URL or data URI to reference.
+
+        Returns:
+            An ``image_url``-typed reference dict.
+        """
         return {
             "type": "image_url",
             "url": url,
@@ -88,10 +182,29 @@ class LLMClient:
 
     @staticmethod
     def _xai_video_ref(url: str) -> Dict[str, Any]:
+        """Wrap an image URL in the reference shape xAI video generation expects.
+
+        Args:
+            url: Source image URL or data URI to animate.
+
+        Returns:
+            A reference dict carrying the URL.
+        """
         return {"url": url}
 
     @staticmethod
     def _has_video_url(payload: Dict[str, Any]) -> bool:
+        """Report whether a video response payload already carries a URL.
+
+        Checks the top-level ``url`` plus the nested ``video``/``result``/
+        ``output`` containers, so a completed result can short-circuit polling.
+
+        Args:
+            payload: Decoded JSON body from a video generation/poll response.
+
+        Returns:
+            ``True`` if a non-empty video URL is present anywhere checked.
+        """
         direct_url = payload.get("url")
         if isinstance(direct_url, str) and direct_url:
             return True
@@ -104,6 +217,15 @@ class LLMClient:
         return False
 
     def _headers(self, provider: str) -> Dict[str, str]:
+        """Build request headers for a provider, adding bearer auth if keyed.
+
+        Args:
+            provider: Provider key whose API key should be used.
+
+        Returns:
+            A headers dict with ``Content-Type`` and, when an API key is
+            configured, an ``Authorization`` bearer header.
+        """
         headers = {"Content-Type": "application/json"}
         api_key = str(self.cfg.llm.api_keys.get(provider, "") or "").strip()
         if api_key:
@@ -112,6 +234,19 @@ class LLMClient:
 
     @staticmethod
     def _is_chat_model(provider: str, model_id: str) -> bool:
+        """Classify whether a model id is a usable chat/response model.
+
+        Filters out embedding, image, video, audio, vision, and dated
+        snapshot variants per provider so :meth:`list_models` only surfaces
+        models that can drive the Responses API.
+
+        Args:
+            provider: Provider key owning the model.
+            model_id: Raw model identifier returned by the provider.
+
+        Returns:
+            ``True`` if the model can be used for chat/response generation.
+        """
         lowered = model_id.lower()
         if provider == "ollama":
             return bool(model_id.strip())
@@ -335,6 +470,22 @@ class LLMClient:
         request_id: str,
         on_status: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
+        """Poll a pending video generation request until it resolves.
+
+        Args:
+            client: Open httpx client to reuse for the poll requests.
+            provider: Provider key (always xAI for video today).
+            request_id: Identifier of the in-flight generation request.
+            on_status: Optional callback invoked with a human-readable status
+                string on each poll iteration.
+
+        Returns:
+            The final response payload once the video is ready.
+
+        Raises:
+            RuntimeError: If generation ends in a terminal failure state.
+            TimeoutError: If the configured timeout elapses before completion.
+        """
         deadline = time.monotonic() + float(self.cfg.llm.timeout)
         while True:
             response = await client.get(

@@ -1,3 +1,4 @@
+"""Matrix bot runtime: router wiring, event handlers, and the main loop."""
 from __future__ import annotations
 
 import asyncio

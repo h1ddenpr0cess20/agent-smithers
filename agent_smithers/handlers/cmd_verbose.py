@@ -1,3 +1,4 @@
+"""Handler for the ``.verbose`` admin command: toggle the verbose persona suffix."""
 from __future__ import annotations
 
 from typing import Any

@@ -1,9 +1,19 @@
+"""Handler for the ``.model`` admin command: switch the active model."""
 from __future__ import annotations
 
 from typing import Any
 
 
 def _provider_label(provider: str) -> str:
+    """Return a human-friendly display label for a provider key.
+
+    Args:
+        provider: Internal provider key (e.g. ``"xai"``, ``"openai"``).
+
+    Returns:
+        A display label (``"xAI"``, ``"OpenAI"``) or the key unchanged when
+        no special-casing applies.
+    """
     if provider == "xai":
         return "xAI"
     if provider == "openai":

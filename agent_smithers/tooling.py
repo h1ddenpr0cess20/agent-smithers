@@ -1,3 +1,10 @@
+"""Tool configuration: hosted, local media, and MCP tool assembly.
+
+Builds the per-provider tool definitions :class:`~.context.AppContext` offers
+to the model — hosted tools (web/X search, code interpreter), the local Grok
+image/video generation functions, and MCP server entries — and applies the
+per-model gating, MCP reachability probing, and web-search country policy.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -81,6 +88,17 @@ async def probe_mcp_servers(ctx: "AppContext") -> None:
 
 
 def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str, Any]]], set[str]]:
+    """Build the per-provider tool map and the MCP auto-approve set.
+
+    Pops the internal ``_auto_approve`` marker off each MCP tool, collecting
+    the server labels that should be auto-approved.
+
+    Args:
+        ctx: Application context providing config and configured providers.
+
+    Returns:
+        A tuple of ``(tools_by_provider, auto_approve_labels)``.
+    """
     hosted_tools_by_provider = {
         provider: build_tools(ctx, provider)
         for provider in configured_providers(ctx)
@@ -95,6 +113,16 @@ def initialize_hosted_tools(ctx: "AppContext") -> Tuple[Dict[str, List[Dict[str,
 
 
 def configured_providers(ctx: "AppContext") -> List[str]:
+    """List providers usable given the current credentials/base URLs.
+
+    OpenAI and xAI require an API key; LM Studio and Ollama require a base URL.
+
+    Args:
+        ctx: Application context holding the LLM config.
+
+    Returns:
+        The ordered list of provider keys that are actually configured.
+    """
     providers: List[str] = []
     for provider in ("openai", "xai", "lmstudio", "ollama"):
         if provider in {"lmstudio", "ollama"}:
@@ -107,6 +135,18 @@ def configured_providers(ctx: "AppContext") -> List[str]:
 
 
 def provider_for_context_model(ctx: "AppContext", model: str) -> str:
+    """Resolve the provider for a model using the context's model map.
+
+    Args:
+        ctx: Application context holding the resolved model map.
+        model: Model identifier to resolve.
+
+    Returns:
+        The owning provider key.
+
+    Raises:
+        ValueError: If the model cannot be resolved to a provider.
+    """
     provider = provider_for_model(model, ctx.models)
     if not provider:
         raise ValueError(f"Unable to resolve provider for model '{model}'")
@@ -114,6 +154,18 @@ def provider_for_context_model(ctx: "AppContext", model: str) -> str:
 
 
 def tools_for_model(ctx: "AppContext", model: str) -> List[Dict[str, Any]]:
+    """Return the tool definitions enabled for a specific model.
+
+    Filters the provider's tools by per-model support and strips the
+    web-search ``user_location`` when the country toggle is disabled.
+
+    Args:
+        ctx: Application context.
+        model: Model the tools will be offered to.
+
+    Returns:
+        The list of tool definitions for that model.
+    """
     provider = provider_for_context_model(ctx, model)
     tools = list(ctx.hosted_tools_by_provider.get(provider, []))
     tools = [tool for tool in tools if tool_supported_for_model(provider, model, tool)]
@@ -133,6 +185,19 @@ def _strip_search_country(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def tool_supported_for_model(provider: str, model: str, tool: Dict[str, Any]) -> bool:
+    """Report whether a tool is usable by a given model.
+
+    Only xAI is gated: its hosted tools require a Grok-4 class model, while
+    local function tools are always allowed. Other providers support all tools.
+
+    Args:
+        provider: Provider owning the model.
+        model: Model identifier.
+        tool: The tool definition under consideration.
+
+    Returns:
+        ``True`` if the model can use the tool.
+    """
     if provider != "xai":
         return True
     tool_type = str(tool.get("type") or "")
@@ -144,6 +209,14 @@ def tool_supported_for_model(provider: str, model: str, tool: Dict[str, Any]) ->
 
 
 def xai_model_supports_hosted_tools(model: str) -> bool:
+    """Report whether an xAI model supports hosted tools (Grok-4 family).
+
+    Args:
+        model: xAI model identifier.
+
+    Returns:
+        ``True`` for ``grok-4``-prefixed models, else ``False``.
+    """
     lowered = str(model or "").strip().lower()
     return lowered.startswith("grok-4")
 
@@ -169,6 +242,18 @@ async def refresh_models(ctx: "AppContext") -> None:
 
 
 def build_tools(ctx: "AppContext", provider: str) -> List[Dict[str, Any]]:
+    """Assemble the full tool list for a provider from config.
+
+    Combines configured hosted tools (with sensible defaults), the local Grok
+    media tools, and any MCP server entries.
+
+    Args:
+        ctx: Application context holding the tool configuration.
+        provider: Provider to build tools for.
+
+    Returns:
+        The assembled list of tool definitions.
+    """
     tools: List[Dict[str, Any]] = []
     hosted_config = dict(getattr(ctx.cfg.llm, "tools", {}) or {})
     defaults = {
@@ -204,6 +289,19 @@ def build_tools(ctx: "AppContext", provider: str) -> List[Dict[str, Any]]:
 
 
 def build_local_media_tools(ctx: "AppContext", hosted_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Build the local Grok image/video function-tool definitions.
+
+    These are only emitted when an xAI API key is present and the
+    corresponding ``image_generation``/``video_generation`` toggles are not
+    disabled.
+
+    Args:
+        ctx: Application context holding API keys.
+        hosted_config: The resolved ``tools`` config controlling toggles.
+
+    Returns:
+        The list of local media function-tool definitions (possibly empty).
+    """
     tools: List[Dict[str, Any]] = []
     xai_available = bool(ctx.cfg.llm.api_keys.get("xai"))
     if xai_available and hosted_config.get("image_generation", True) not in (None, False):
@@ -342,6 +440,21 @@ def build_hosted_tool(
     tool_name: str,
     spec: Any,
 ) -> Optional[Dict[str, Any]]:
+    """Build a single hosted-tool definition from its config spec.
+
+    Adds provider-specific extras (OpenAI web-search ``user_location`` and
+    code-interpreter ``container``) and merges any dict overrides.
+
+    Args:
+        ctx: Application context (for logging and search-country config).
+        provider: Provider the tool targets.
+        tool_name: Hosted tool name (becomes the ``type``).
+        spec: ``True`` to enable with defaults, a dict of overrides, or a
+            falsy/invalid value to disable.
+
+    Returns:
+        The tool definition, or ``None`` when disabled or invalid.
+    """
     if spec in (None, False):
         return None
     if tool_name == "image_generation" and provider == "xai":
@@ -377,6 +490,22 @@ def build_mcp_tool(
     name: str,
     spec: Any,
 ) -> Optional[Dict[str, Any]]:
+    """Build an MCP server tool definition from its config spec.
+
+    Maps config keys to the provider-specific field names (xAI vs. OpenAI),
+    resolves a bearer token from ``authorization_env`` when present, and marks
+    auto-approve servers with an internal ``_auto_approve`` flag.
+
+    Args:
+        ctx: Application context (for logging and env lookups).
+        provider: Provider the MCP tool targets.
+        name: Default server label when the spec omits one.
+        spec: The MCP server configuration dict.
+
+    Returns:
+        The MCP tool definition, or ``None`` if the spec is invalid or lacks
+        both a ``server_url`` and a ``connector_id``.
+    """
     if not isinstance(spec, dict):
         ctx.logger.warning("Ignoring invalid MCP config for %s", name)
         return None
@@ -425,6 +554,23 @@ def apply_search_country_policy(
     provider: str,
     tools: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
+    """Prepend or merge a web-search country-preference policy note.
+
+    Applies only for xAI requests that include a search tool and only when a
+    country is configured and the toggle is enabled; the note steers results
+    toward the configured country.
+
+    Args:
+        ctx: Application context holding the country config and toggle.
+        messages: The chat messages about to be sent.
+        provider: Provider the request targets.
+        tools: Tools attached to the request.
+
+    Returns:
+        A new message list with the policy merged into (or prepended as) a
+        system message, or a copy of ``messages`` when the policy does not
+        apply.
+    """
     country = ctx.cfg.llm.web_search_country
     if not country or not getattr(ctx, "search_country_enabled", True) or provider != "xai":
         return list(messages)

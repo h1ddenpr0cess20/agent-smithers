@@ -1,3 +1,4 @@
+"""Helpers for rendering Markdown into Matrix-flavored HTML."""
 from __future__ import annotations
 
 import re

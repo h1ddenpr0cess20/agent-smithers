@@ -1,3 +1,10 @@
+"""Async wrapper around the matrix-nio client.
+
+:class:`MatrixClientWrapper` centralizes login, store/key management, sync,
+message sending/editing/redaction, media uploads, and event-callback
+registration so the rest of the app talks to a small, intention-revealing
+surface instead of nio directly.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -224,12 +231,14 @@ class MatrixClientWrapper:
     def add_text_handler(self, handler: TextHandler) -> None:
         """Register a RoomMessageText callback that wraps your handler."""
         async def _cb(room: MatrixRoom, event: RoomMessageText) -> None:  # type: ignore
+            """Forward the nio text event to the registered handler."""
             await handler(room, event)
         self.client.add_event_callback(_cb, RoomMessageText)  # type: ignore
 
     def add_megolm_handler(self, handler: TextHandler) -> None:
         """Register a MegolmEvent callback for undecryptable encrypted messages."""
         async def _cb(room: MatrixRoom, event: MegolmEvent) -> None:  # type: ignore
+            """Forward the nio undecryptable event to the registered handler."""
             await handler(room, event)
         self.client.add_event_callback(_cb, MegolmEvent)  # type: ignore
 

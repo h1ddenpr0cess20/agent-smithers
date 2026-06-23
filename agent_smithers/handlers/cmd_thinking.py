@@ -1,3 +1,4 @@
+"""Handler for the ``.thinking`` admin command: toggle the typing placeholder."""
 from __future__ import annotations
 
 from typing import Any

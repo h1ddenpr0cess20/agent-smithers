@@ -1,3 +1,4 @@
+"""Handler for the ``.country`` admin command: set the web-search region."""
 from __future__ import annotations
 
 from typing import Any

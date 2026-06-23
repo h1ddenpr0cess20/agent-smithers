@@ -1,3 +1,4 @@
+"""Handler for the ``.ai`` command: chat with the configured persona."""
 from __future__ import annotations
 
 from typing import Any

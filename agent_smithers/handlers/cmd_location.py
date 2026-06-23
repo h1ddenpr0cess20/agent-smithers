@@ -1,3 +1,4 @@
+"""Handler for the ``.location`` command: manage a per-user location hint."""
 from __future__ import annotations
 
 from typing import Any

@@ -1,3 +1,4 @@
+"""Handler for the ``.x`` command: chat as a named persona for one turn."""
 from __future__ import annotations
 
 from typing import Any

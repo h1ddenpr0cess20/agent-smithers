@@ -1,3 +1,4 @@
+"""Handler for the ``.whitelist`` admin command: manage the video allowlist."""
 from __future__ import annotations
 
 from typing import Any

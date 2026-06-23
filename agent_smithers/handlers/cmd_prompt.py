@@ -1,3 +1,4 @@
+"""Handlers for the ``.persona`` and ``.custom`` system-prompt commands."""
 from __future__ import annotations
 
 from typing import Any

@@ -1,3 +1,4 @@
+"""Per-room conversation history with optional encrypted persistence."""
 from __future__ import annotations
 
 import json
@@ -29,6 +30,23 @@ class HistoryStore:
         store_path: Optional[str] = None,
         encryption_key: Optional[str] = None,
     ) -> None:
+        """Initialize the history store.
+
+        Args:
+            prompt_prefix: Text placed before the personality in the system
+                prompt (ignored when ``system_prompt`` is given).
+            prompt_suffix: Text placed after the personality in the system
+                prompt (ignored when ``system_prompt`` is given).
+            personality: The persona description woven into the system prompt.
+            prompt_suffix_extra: Optional extra suffix appended unless verbose
+                mode is enabled.
+            max_tokens: Soft cap on retained history tokens per conversation.
+            system_prompt: If provided, used verbatim as the system prompt,
+                bypassing the prefix/suffix/personality composition.
+            store_path: Directory for the encrypted history file; enables
+                persistence only when combined with ``encryption_key``.
+            encryption_key: Fernet key used to encrypt persisted history.
+        """
         # Allow alternate constructor via system_prompt
         if system_prompt is not None:
             self.prompt_prefix = ""

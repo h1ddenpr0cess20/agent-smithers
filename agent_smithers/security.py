@@ -1,3 +1,4 @@
+"""Matrix device-verification and to-device event security callbacks."""
 import logging
 from typing import Any, Optional
 

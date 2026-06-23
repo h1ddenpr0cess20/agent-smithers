@@ -1,3 +1,4 @@
+"""Handler for the ``.help`` command: print a usage summary."""
 from __future__ import annotations
 
 from typing import Any

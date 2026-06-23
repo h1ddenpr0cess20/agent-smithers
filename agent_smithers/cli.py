@@ -1,3 +1,4 @@
+"""Command-line interface: argument parsing, config loading, and startup."""
 from __future__ import annotations
 
 import argparse

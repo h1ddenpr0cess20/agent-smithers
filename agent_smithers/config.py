@@ -1,3 +1,4 @@
+"""Configuration loading, parsing, and validation."""
 from __future__ import annotations
 
 import json
@@ -13,18 +14,48 @@ SUPPORTED_PROVIDERS = {"openai", "xai", "lmstudio", "ollama"}
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
+    """Parse a truthy string from the environment into a bool.
+
+    Args:
+        value: Raw string value, or ``None`` when the variable is unset.
+        default: Value to return when ``value`` is ``None``.
+
+    Returns:
+        ``True`` if the value is one of ``1``/``true``/``yes``/``on``
+        (case-insensitive), otherwise ``False`` (or ``default`` when unset).
+    """
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _parse_csv(value: str | None) -> List[str]:
+    """Parse a comma-separated string into a list of trimmed, non-empty items.
+
+    Args:
+        value: Raw comma-separated string, or ``None``.
+
+    Returns:
+        A list of trimmed entries, or an empty list when the value is empty.
+    """
     if not value:
         return []
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def _parse_json(value: str | None, default: Any) -> Any:
+    """Parse a JSON-encoded string, falling back to a default when empty.
+
+    Args:
+        value: Raw JSON string, or ``None``/empty for the default.
+        default: Value returned when ``value`` is empty.
+
+    Returns:
+        The decoded JSON object, or ``default`` when no value is provided.
+
+    Raises:
+        ConfigError: If ``value`` is present but not valid JSON.
+    """
     if not value:
         return default
     try:
@@ -62,6 +93,8 @@ def load_env_file(path: Optional[str] = None) -> Dict[str, str]:
 
 @dataclass
 class MatrixConfig:
+    """Matrix connection, identity, and access-control settings."""
+
     server: str
     username: str
     password: str
@@ -76,6 +109,8 @@ class MatrixConfig:
 
 @dataclass
 class LLMConfig:
+    """Provider, model, prompt, tool, and history settings for the LLM layer."""
+
     models: Dict[str, List[str]]
     api_keys: Dict[str, str]
     default_model: str
@@ -94,6 +129,8 @@ class LLMConfig:
 
 @dataclass
 class AppConfig:
+    """Top-level application config bundling the LLM and Matrix sections."""
+
     llm: LLMConfig
     matrix: MatrixConfig
     markdown: bool = True
@@ -101,6 +138,19 @@ class AppConfig:
 
 
 def provider_for_model(model: str, models: Dict[str, List[str]]) -> Optional[str]:
+    """Resolve which provider owns a model id.
+
+    Prefers an explicit match in the configured ``models`` map, then falls
+    back to prefix heuristics (``grok-`` → xAI, ``gpt-``/``o1``/``o3``/``o4``
+    → OpenAI).
+
+    Args:
+        model: Model identifier to resolve.
+        models: Mapping of provider key to its list of configured model ids.
+
+    Returns:
+        The provider key, or ``None`` if the model cannot be resolved.
+    """
     selected = str(model or "").strip()
     if not selected:
         return None
@@ -117,6 +167,18 @@ def provider_for_model(model: str, models: Dict[str, List[str]]) -> Optional[str
 
 
 def validate_config(cfg: AppConfig) -> Tuple[bool, List[str]]:
+    """Validate a fully assembled application config.
+
+    Checks that at least one provider is configured, that keyed providers
+    have their required API keys or base URLs, and that a default model is set.
+
+    Args:
+        cfg: The assembled application configuration to validate.
+
+    Returns:
+        A tuple of ``(ok, errors)`` where ``ok`` is ``True`` only when
+        ``errors`` is empty.
+    """
     errors: List[str] = []
 
     configured_providers = []

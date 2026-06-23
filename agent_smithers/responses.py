@@ -1,3 +1,10 @@
+"""Response generation, tool execution, and artifact handling.
+
+Implements the core request/response loop that :class:`~.context.AppContext`
+delegates to: cleaning model output, extracting text and image/video sources,
+downloading and sending media artifacts, handling MCP approval requests, and
+executing the local Grok image/video generation tools.
+"""
 from __future__ import annotations
 
 import base64
@@ -44,6 +51,21 @@ def clean_response_text(
     sender_display: str,
     sender_id: str,
 ) -> str:
+    """Strip reasoning/solution scaffolding from a model response.
+
+    Removes ``<think>``, ``<|begin_of_thought|>``, and ``<|begin_of_solution|>``
+    style blocks, logging any extracted thinking, and returns only the final
+    user-facing answer.
+
+    Args:
+        ctx: Application context, used for logging extracted reasoning.
+        text: Raw model output text.
+        sender_display: Display name of the requesting user (for logs).
+        sender_id: Matrix ID of the requesting user (for logs).
+
+    Returns:
+        The cleaned, stripped response text.
+    """
     cleaned = text or ""
     if "</think>" in cleaned and "<think>" in cleaned:
         try:
@@ -78,6 +100,17 @@ def clean_response_text(
 
 
 def extract_text(response: Dict[str, Any]) -> str:
+    """Extract the assistant's text from a Responses API payload.
+
+    Concatenates ``output_text`` content across message items, falling back to
+    the top-level ``output_text`` convenience field.
+
+    Args:
+        response: The decoded Responses API payload.
+
+    Returns:
+        The combined assistant text, or an empty string when none is present.
+    """
     parts: List[str] = []
     for item in response.get("output", []) or []:
         if item.get("type") != "message":
@@ -93,11 +126,35 @@ def extract_text(response: Dict[str, Any]) -> str:
 
 
 def strip_inline_citations(text: str, annotations: Any = None) -> str:
+    """Return the text unchanged (inline citations are now preserved).
+
+    Kept as a stable no-op so callers and tests have a single seam should
+    citation stripping ever be reintroduced.
+
+    Args:
+        text: The response text.
+        annotations: Ignored; accepted for backward compatibility.
+
+    Returns:
+        The original text, coerced to ``str``.
+    """
     del annotations
     return str(text or "")
 
 
 def walk_image_results(value: Any) -> Iterable[Dict[str, Any]]:
+    """Recursively yield image sources from an arbitrary result value.
+
+    Handles base64 strings, lists, and dicts carrying inline data, ``file_id``
+    references, or nested ``file`` objects.
+
+    Args:
+        value: A string, list, or dict from an image tool result.
+
+    Yields:
+        Dicts describing each image source, either ``{"inline": ...}`` or
+        ``{"file_id": ..., "container_id": ...}``.
+    """
     if isinstance(value, str):
         yield {"inline": value}
         return
@@ -130,6 +187,18 @@ def walk_image_results(value: Any) -> Iterable[Dict[str, Any]]:
 
 
 def iter_image_sources(response: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+    """Yield every image source embedded in a Responses API payload.
+
+    Walks ``image_generation_call`` results plus ``output_image`` content and
+    file-citation annotations on message items, propagating container ids.
+
+    Args:
+        response: The decoded Responses API payload.
+
+    Yields:
+        Image source dicts (inline data or file references) suitable for
+        :func:`walk_image_results` consumers.
+    """
     for item in response.get("output", []) or []:
         item_type = item.get("type")
         if item_type == "image_generation_call":
@@ -173,11 +242,29 @@ def iter_image_sources(response: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
 
 
 def decode_base64_image(data: str) -> bytes:
+    """Decode a base64 image, accepting raw or ``data:`` URI input.
+
+    Args:
+        data: A base64 string or a ``data:...;base64,...`` URI.
+
+    Returns:
+        The decoded image bytes.
+    """
     encoded = data.split(",", 1)[1] if data.startswith("data:") and "," in data else data
     return base64.b64decode(encoded)
 
 
 def write_artifact(ctx: "AppContext", data: bytes, suffix: str) -> str:
+    """Write bytes to a uniquely named file in the artifact directory.
+
+    Args:
+        ctx: Application context providing the artifact directory.
+        data: Raw bytes to persist.
+        suffix: File suffix/extension (e.g. ``".png"``).
+
+    Returns:
+        The path to the written temporary artifact file.
+    """
     with tempfile.NamedTemporaryFile(
         mode="wb",
         prefix="agent-smithers-",
@@ -196,6 +283,17 @@ async def download_image_bytes(
     file_id: str,
     container_id: Optional[str],
 ) -> bytes:
+    """Download an image file produced by a hosted tool.
+
+    Args:
+        ctx: Application context providing the LLM client.
+        provider: Provider that produced the file.
+        file_id: Identifier of the file to download.
+        container_id: Optional code-interpreter container id.
+
+    Returns:
+        The raw image bytes.
+    """
     return await ctx.llm.download_file(file_id, provider=provider, container_id=container_id)
 
 
@@ -207,6 +305,21 @@ async def send_response_artifacts(
     provider: str,
     thread_user: Optional[str] = None,
 ) -> bool:
+    """Send every image embedded in a response to a Matrix room.
+
+    Decodes inline images and downloads file-referenced ones, caches each as
+    the thread's latest generated image, writes a temp artifact, and uploads it.
+
+    Args:
+        ctx: Application context.
+        response: The decoded Responses API payload.
+        room_id: Destination room, or ``None`` to skip sending.
+        provider: Provider used to authenticate file downloads.
+        thread_user: Optional user id for remembering generated media.
+
+    Returns:
+        ``True`` if at least one image was sent.
+    """
     if not room_id:
         return False
     sent_any = False
@@ -250,6 +363,15 @@ async def send_response_artifacts(
 
 
 def approval_items(response: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collect MCP approval-request items from a response payload.
+
+    Args:
+        response: The decoded Responses API payload.
+
+    Returns:
+        The list of ``mcp_approval_request``/``mcp_approval_request_item``
+        output items (possibly empty).
+    """
     items: List[Dict[str, Any]] = []
     for item in response.get("output", []) or []:
         item_type = str(item.get("type") or "")
@@ -259,6 +381,15 @@ def approval_items(response: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def should_auto_approve(ctx: "AppContext", item: Dict[str, Any]) -> bool:
+    """Decide whether an MCP approval request is auto-approved.
+
+    Args:
+        ctx: Application context holding the auto-approve server set.
+        item: A single MCP approval-request item.
+
+    Returns:
+        ``True`` if the item's server label is configured for auto-approval.
+    """
     label = str(item.get("server_label") or item.get("mcp_server_label") or "").strip()
     return bool(label and label in ctx._mcp_auto_approve)
 
@@ -270,6 +401,21 @@ async def maybe_continue_after_approvals(
     tools: Optional[List[Dict[str, Any]]],
     response: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """Auto-approve pending MCP requests and continue until none remain.
+
+    Repeatedly approves the auto-approvable requests in the current response
+    and re-calls the model, looping until the response carries no further
+    auto-approvable requests.
+
+    Args:
+        ctx: Application context (LLM client, options, auto-approve set).
+        model: Model to continue the turn with.
+        tools: Tools to keep attached when tools are enabled.
+        response: The response carrying the initial approval requests.
+
+    Returns:
+        The settled response once no auto-approvable requests remain.
+    """
     current = response
     while True:
         pending = approval_items(current)
@@ -458,6 +604,17 @@ async def _send_base64_images(
     room_id: Optional[str],
     thread_user: Optional[str],
 ) -> bool:
+    """Send base64 images from an image API ``data`` array to a room.
+
+    Args:
+        ctx: Application context.
+        response: An image generation/edit API payload with a ``data`` list.
+        room_id: Destination room, or ``None`` to skip sending.
+        thread_user: Optional user id for remembering generated media.
+
+    Returns:
+        ``True`` if at least one image was sent.
+    """
     sent_any = False
     for entry in response.get("data", []) or []:
         b64 = entry.get("b64_json")
@@ -482,6 +639,17 @@ async def _send_base64_images(
 
 
 def _extract_image_edit_urls(args: Dict[str, Any]) -> List[str]:
+    """Collect and de-duplicate source image URLs from edit-tool arguments.
+
+    Merges a singular ``image_url`` (first) with any ``image_urls`` list,
+    dropping blanks and duplicates while preserving order.
+
+    Args:
+        args: The decoded tool-call arguments.
+
+    Returns:
+        An ordered, de-duplicated list of source image URLs.
+    """
     image_urls = [
         str(value).strip()
         for value in (args.get("image_urls") or [])
@@ -500,6 +668,16 @@ def _extract_image_edit_urls(args: Dict[str, Any]) -> List[str]:
 
 
 def _guess_media_suffix(url: str, default: str) -> str:
+    """Guess a file suffix from a media URL's path.
+
+    Args:
+        url: The media URL to inspect.
+        default: Suffix to fall back to when none can be derived or the
+            candidate looks implausible (missing dot or over 8 chars).
+
+    Returns:
+        A lowercase extension including the leading dot, or ``default``.
+    """
     suffix = urlparse(url).path.rsplit("/", 1)[-1]
     if "." not in suffix:
         return default
@@ -510,6 +688,17 @@ def _guess_media_suffix(url: str, default: str) -> str:
 
 
 def _extract_video_url(payload: Dict[str, Any]) -> Optional[str]:
+    """Pull the downloadable video URL out of a generation payload.
+
+    Checks the top-level ``url`` then the nested ``video``/``result``/
+    ``output`` containers.
+
+    Args:
+        payload: The decoded video generation/poll response.
+
+    Returns:
+        The first non-empty video URL found, or ``None``.
+    """
     direct_url = payload.get("url")
     if isinstance(direct_url, str) and direct_url:
         return direct_url
@@ -531,6 +720,20 @@ async def _execute_generate_image_call(
     prompt: str,
     args: Dict[str, Any],
 ) -> str:
+    """Run a Grok image-generation tool call and send the result.
+
+    Args:
+        ctx: Application context.
+        model: Model that issued the call (provider is forced to xAI).
+        room_id: Destination room for the generated image.
+        thread_user: Optional user id for remembering generated media.
+        prompt: The image prompt.
+        args: Remaining tool-call arguments (``n``, ``aspect_ratio``,
+            ``resolution``).
+
+    Returns:
+        A short status string reported back to the model as tool output.
+    """
     with ctx.status("Generating image with Grok"):
         img_response = await ctx.llm.generate_image(
             prompt=prompt,
@@ -553,6 +756,25 @@ async def _execute_edit_image_call(
     prompt: str,
     args: Dict[str, Any],
 ) -> str:
+    """Run a Grok image-edit tool call and send the result.
+
+    Falls back to the thread's most recently generated image when no source
+    URL is supplied.
+
+    Args:
+        ctx: Application context.
+        model: Model that issued the call (provider is forced to xAI).
+        room_id: Destination room for the edited image.
+        thread_user: Optional user id for media context and remembering.
+        prompt: The edit instruction prompt.
+        args: Remaining tool-call arguments (image URLs, ``n``, etc.).
+
+    Returns:
+        A short status string reported back to the model as tool output.
+
+    Raises:
+        ValueError: If no source image can be resolved.
+    """
     image_urls = _extract_image_edit_urls(args)
     if not image_urls:
         latest_image = ctx._latest_generated_media(room_id, thread_user, kind="image")
@@ -583,6 +805,27 @@ async def _execute_generate_video_call(
     prompt: str,
     args: Dict[str, Any],
 ) -> str:
+    """Run a Grok video-generation/edit tool call and send the result.
+
+    Resolves the source image or video (falling back to the thread's latest
+    generated media), generates the video, downloads it, and uploads it.
+
+    Args:
+        ctx: Application context.
+        model: Model that issued the call (provider is forced to xAI).
+        room_id: Destination room for the generated video.
+        thread_user: Optional user id for media context and remembering.
+        prompt: The video prompt.
+        args: Remaining tool-call arguments (image/video URL, ``duration``,
+            ``aspect_ratio``, ``resolution``).
+
+    Returns:
+        A short status string reported back to the model as tool output.
+
+    Raises:
+        ValueError: If both image and video sources are given, or the
+            response carries no downloadable URL.
+    """
     image_url = str(args.get("image_url") or "").strip() or None
     video_url = str(args.get("video_url") or "").strip() or None
     if not image_url and not video_url:
@@ -636,6 +879,23 @@ async def generate_reply(
     use_tools: Optional[bool] = None,
     thread_user: Optional[str] = None,
 ) -> str:
+    """Generate a chat reply, running tools and sending media as needed.
+
+    Prepares the messages (thread media note, search-country policy), calls the
+    provider, settles any tool/approval follow-ups, sends image/video
+    artifacts, and returns the cleaned text.
+
+    Args:
+        ctx: Application context.
+        messages: The chat history to respond to.
+        model: Model override; defaults to the active model.
+        room_id: Room context for tool output and media delivery.
+        use_tools: Force-enable/disable tools; ``None`` uses the model default.
+        thread_user: Optional user id for thread media context.
+
+    Returns:
+        The final user-facing reply text.
+    """
     use_model = model or ctx.model
     provider = ctx._provider_for_model(use_model)
     active_tools = ctx._tools_for_model(use_model)
@@ -701,6 +961,22 @@ async def respond_with_tools(
     tool_choice: str = "auto",
     thread_user: Optional[str] = None,
 ) -> str:
+    """Generate a reply with tools force-enabled.
+
+    Thin wrapper over :func:`generate_reply` that always enables tools; the
+    ``tool_choice`` argument is accepted for API compatibility but ignored.
+
+    Args:
+        ctx: Application context.
+        messages: The chat history to respond to.
+        model: Model override; defaults to the active model.
+        room_id: Room context for tool output and media delivery.
+        tool_choice: Accepted for compatibility; currently ignored.
+        thread_user: Optional user id for thread media context.
+
+    Returns:
+        The final user-facing reply text.
+    """
     del tool_choice
     return await generate_reply(
         ctx,
