@@ -1,4 +1,8 @@
-"""Handler for the ``.verbose`` admin command: toggle the verbose persona suffix."""
+"""Handler for the ``.verbose`` admin command.
+
+Views or toggles verbose mode, which omits the brevity clause normally
+appended to the system prompt so the model may answer at greater length.
+"""
 from __future__ import annotations
 
 from typing import Any

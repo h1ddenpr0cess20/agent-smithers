@@ -34,7 +34,19 @@ LOCAL_MEDIA_TOOL_NAMES = IMAGE_GENERATION_TOOL_NAMES | IMAGE_EDIT_TOOL_NAMES | V
 
 
 def _is_video_allowed(ctx: "AppContext", user_id: Optional[str]) -> bool:
-    """Check if a user is allowed to generate video based on the whitelist."""
+    """Check whether a user may generate video, per the allowlist.
+
+    Everyone is allowed when the allowlist is disabled; otherwise the user
+    must be an admin or an explicit allowlist entry. A missing user id is
+    treated as not allowed.
+
+    Args:
+        ctx: Application context holding the allowlist and admins.
+        user_id: The requesting user's id, if known.
+
+    Returns:
+        ``True`` if the user is allowed to generate video.
+    """
     if not ctx.video_whitelist_enabled:
         return True
     if not user_id:
@@ -455,7 +467,29 @@ async def settle_response(
     followup_instructions: Optional[str] = None,
     followup_input_items: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """Continue approvals and local function calls until the response settles."""
+    """Drive a response to completion through approvals and local tool calls.
+
+    Loops: auto-approves any pending MCP requests and executes local media
+    tool calls, feeding their outputs back to the model, until a turn yields
+    no further approvals or tool calls. Either threads state via
+    ``previous_response_id`` or accumulates explicit input items, depending on
+    whether ``followup_input_items`` was supplied (OpenAI follow-up path).
+
+    Args:
+        ctx: Application context.
+        response: The initial model response to settle.
+        model: Model used for any continuation requests.
+        room_id: Room for tool output and media delivery.
+        tools: Tools to keep attached on continuation requests.
+        tools_enabled: Whether tools should be sent on continuations.
+        thread_user: Optional user id for thread media context.
+        followup_instructions: Instructions for accumulated-input continuations.
+        followup_input_items: Seed input items; when provided, state is carried
+            explicitly rather than via ``previous_response_id``.
+
+    Returns:
+        The settled response once no approvals or tool calls remain.
+    """
     current = response
     accumulated_input = list(followup_input_items) if followup_input_items is not None else None
     while True:
@@ -533,7 +567,24 @@ async def handle_generate_image_calls(
     room_id: Optional[str],
     thread_user: Optional[str] = None,
 ) -> Optional[List[Dict[str, Any]]]:
-    """Execute local xAI media function calls and return tool output items."""
+    """Execute local Grok media tool calls and collect their outputs.
+
+    Finds ``function_call`` items naming the local image/edit/video tools,
+    runs each (enforcing the video allowlist), and returns the matching
+    ``function_call_output`` items to feed back to the model. Per-call
+    failures are caught and reported as a short error output string.
+
+    Args:
+        ctx: Application context.
+        response: The model response that may contain media tool calls.
+        model: Model that issued the calls.
+        room_id: Room for generated media delivery.
+        thread_user: Optional user id for allowlist checks and media context.
+
+    Returns:
+        The list of tool-output items, or ``None`` when there were no local
+        media calls to handle.
+    """
     calls = [
         item for item in (response.get("output") or [])
         if isinstance(item, dict)

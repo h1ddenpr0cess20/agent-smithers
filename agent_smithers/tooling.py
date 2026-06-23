@@ -36,7 +36,17 @@ _MCP_PROBE_TIMEOUT = 5.0
 
 
 async def _probe_url(url: str) -> bool:
-    """Return True if the server at *url* responds to a basic HTTP request."""
+    """Check whether an MCP server URL is reachable.
+
+    Issues a short-timeout GET and treats any response below HTTP 500 as
+    reachable; connection errors and timeouts count as unreachable.
+
+    Args:
+        url: The server URL to probe.
+
+    Returns:
+        ``True`` if the server responded with a status below 500.
+    """
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(_MCP_PROBE_TIMEOUT)) as client:
             response = await client.get(url)
@@ -175,7 +185,17 @@ def tools_for_model(ctx: "AppContext", model: str) -> List[Dict[str, Any]]:
 
 
 def _strip_search_country(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Return a copy of *tools* with user_location removed from web_search tools."""
+    """Drop the ``user_location`` hint from web-search tools.
+
+    Applied when the search-country toggle is off so location bias is not sent
+    to the provider. Non-search tools pass through unchanged.
+
+    Args:
+        tools: The tool definitions to sanitize.
+
+    Returns:
+        A new list where ``web_search`` tools have no ``user_location`` key.
+    """
     result: List[Dict[str, Any]] = []
     for tool in tools:
         if str(tool.get("type") or "") == "web_search" and "user_location" in tool:
@@ -222,7 +242,16 @@ def xai_model_supports_hosted_tools(model: str) -> bool:
 
 
 async def refresh_models(ctx: "AppContext") -> None:
-    """Refresh the available model list from configured providers."""
+    """Merge server-reported models into the context's model map.
+
+    Queries each configured provider's model list and unions it with the
+    configured models (configured ids are always retained). Providers that
+    error or return nothing are left as configured. Rebuilds the active tool
+    list afterward.
+
+    Args:
+        ctx: Application context whose model map and tools are updated.
+    """
     merged_models = dict(ctx.cfg.llm.models)
     for provider in configured_providers(ctx):
         try:

@@ -1,4 +1,8 @@
-"""Handler for the ``.mymodel`` command: per-user model selection."""
+"""Handler for the ``.mymodel`` command.
+
+Lets an individual user select, clear, or view their own model override,
+which takes precedence over the global model for their threads.
+"""
 from __future__ import annotations
 
 from typing import Any

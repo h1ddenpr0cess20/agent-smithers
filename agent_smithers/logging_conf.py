@@ -16,7 +16,12 @@ _STATUS_CONTENT_PADDING = 30
 
 
 class _NoopStatus:
-    """Fallback status object when Rich status output is unavailable."""
+    """No-op status context manager used when spinners are disabled.
+
+    Implements the same enter/exit/update protocol as :class:`_RichStatus`
+    but renders nothing, so callers can use ``with ctx.status(...)``
+    unconditionally regardless of whether Rich output is active.
+    """
 
     def __init__(self, message: str) -> None:
         """Store the initial status message.
@@ -27,7 +32,12 @@ class _NoopStatus:
         self.message = message
 
     def __enter__(self) -> "_NoopStatus":
-        """Enter the context manager, returning self."""
+        """Enter the context manager.
+
+        Returns:
+            This status object, so it can be bound in a ``with ... as``
+            clause and have ``update`` called on it.
+        """
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -61,7 +71,12 @@ class _NoopStatus:
 
 
 class _RichStatus:
-    """Rich-backed spinner aligned with the log message content column."""
+    """Live Rich spinner aligned with the log message content column.
+
+    Wraps a Rich ``Status`` in a transient ``Live`` display, left-padded so the
+    spinner lines up with the text column of the configured log format. Used as
+    a context manager around long-running operations to show progress.
+    """
 
     def __init__(self, console: Any, message: str, *, spinner: str) -> None:
         """Build a live, padded Rich status spinner.
@@ -93,7 +108,12 @@ class _RichStatus:
         return self._padding(self._status, (0, 0, 0, _STATUS_CONTENT_PADDING))
 
     def __enter__(self) -> "_RichStatus":
-        """Start the live display and return self."""
+        """Start the live spinner display.
+
+        Returns:
+            This status object, so it can be bound in a ``with ... as``
+            clause and updated while the operation runs.
+        """
         self._live.start()
         return self
 
@@ -283,7 +303,20 @@ def spinner_status(
     spinner: str = "dots",
     enabled: bool = True,
 ):
-    """Return a Rich status spinner when available, otherwise a no-op context manager."""
+    """Create a status spinner context manager.
+
+    Returns a live Rich spinner when one is requested and a console is
+    available; otherwise returns a no-op status with the same interface so
+    call sites need no conditional logic.
+
+    Args:
+        message: Initial status text.
+        spinner: Rich spinner animation name.
+        enabled: When ``False``, always return the no-op status.
+
+    Returns:
+        A :class:`_RichStatus` or :class:`_NoopStatus` context manager.
+    """
     if not enabled or _RICH_CONSOLE is None:
         return _NoopStatus(message)
     return _RichStatus(_RICH_CONSOLE, message, spinner=spinner)

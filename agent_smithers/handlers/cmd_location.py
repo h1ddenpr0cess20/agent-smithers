@@ -1,4 +1,8 @@
-"""Handler for the ``.location`` command: manage a per-user location hint."""
+"""Handler for the ``.location`` command.
+
+Sets, clears, or displays a per-user location note that is woven into the
+system prompt so replies can be location-aware.
+"""
 from __future__ import annotations
 
 from typing import Any

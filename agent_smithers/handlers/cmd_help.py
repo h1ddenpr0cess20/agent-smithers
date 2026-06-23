@@ -1,4 +1,8 @@
-"""Handler for the ``.help`` command: print a usage summary."""
+"""Handler for the ``.help`` command.
+
+Renders the bundled help text summarizing the available commands and sends
+it to the requesting room.
+"""
 from __future__ import annotations
 
 from typing import Any

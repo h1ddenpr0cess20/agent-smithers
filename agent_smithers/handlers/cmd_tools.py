@@ -1,4 +1,8 @@
-"""Handler for the ``.tools`` admin command: toggle hosted/local tool use."""
+"""Handler for the ``.tools`` admin command.
+
+Views or toggles whether hosted, local-media, and MCP tools are offered to
+the model during generation.
+"""
 from __future__ import annotations
 
 from typing import Any

@@ -1,4 +1,8 @@
-"""Handler for the ``.model`` admin command: switch the active model."""
+"""Handler for the ``.model`` admin command.
+
+Displays the current model or switches the bot's globally active model,
+resolving the owning provider for a friendly confirmation message.
+"""
 from __future__ import annotations
 
 from typing import Any

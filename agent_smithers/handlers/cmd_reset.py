@@ -1,4 +1,8 @@
-"""Handlers for the ``.reset``, ``.stock``, and ``.clear`` history commands."""
+"""Handlers for the ``.reset``, ``.stock``, and ``.clear`` history commands.
+
+These clear a thread's conversation history, optionally restoring the stock
+persona, so a user can start a fresh conversation.
+"""
 from __future__ import annotations
 
 from typing import Any

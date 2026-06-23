@@ -1,4 +1,8 @@
-"""Handler for the ``.ai`` command: chat with the configured persona."""
+"""Handler for the ``.ai`` command.
+
+Sends the user's message to the model using the active persona and the
+conversation history for the room/user thread, then returns the reply.
+"""
 from __future__ import annotations
 
 from typing import Any

@@ -1,4 +1,9 @@
-"""Helpers for rendering Markdown into Matrix-flavored HTML."""
+"""Helpers for rendering Markdown into Matrix-flavored HTML.
+
+Wraps the ``markdown`` library with the extension set Matrix clients expect
+and applies pre-processing fixes (notably list-spacing normalization for
+``nl2br``) so rendered messages display correctly across clients.
+"""
 from __future__ import annotations
 
 import re
@@ -20,7 +25,19 @@ _OL_MARKER_RE = re.compile(r"^\s*\d+[.)]")
 
 
 def _list_key(line: str) -> tuple[int, str] | None:
-    """Return (indent, kind) for a list item line, or None if not a list item."""
+    """Classify a line as an ordered/unordered list item.
+
+    Used by the list-spacing normalizer to decide whether two adjacent lines
+    belong to the same list (same indent and marker type).
+
+    Args:
+        line: A single source line to inspect.
+
+    Returns:
+        A ``(indent, kind)`` tuple where ``indent`` is the leading-whitespace
+        width and ``kind`` is ``"ol"`` or ``"ul"``, or ``None`` when the line
+        is not a list item.
+    """
     if not _LIST_ITEM_RE.match(line):
         return None
     indent = len(line) - len(line.lstrip())

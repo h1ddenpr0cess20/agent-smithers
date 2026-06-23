@@ -25,7 +25,15 @@ from . import responses, tooling
 
 
 class AppContext:
-    """Application runtime context and service container."""
+    """Runtime context and service container for the bot.
+
+    Holds the shared services (Matrix client, LLM client, history store,
+    thread-pool executor) and mutable per-session state (active model,
+    persona, tool configuration, generated-media cache, thinking-indicator
+    bookkeeping). Heavy logic lives in :mod:`responses` and :mod:`tooling`;
+    the methods here are the stable entry points those modules call back
+    through, plus the message-sending helpers used by handlers.
+    """
 
     INLINE_CITATION_RE = responses.INLINE_CITATION_RE
     _extract_text = staticmethod(responses.extract_text)
@@ -106,7 +114,18 @@ class AppContext:
             self.logger.info("Tool calling disabled: no hosted tools configured")
 
     def is_video_allowed(self, sender_id: str, sender_display: str) -> bool:
-        """Return True if the user is allowed to generate video."""
+        """Report whether a user may generate video.
+
+        Everyone is allowed when the allowlist is disabled; otherwise admins
+        and explicitly listed users (by ID or display name) are permitted.
+
+        Args:
+            sender_id: The requesting user's Matrix ID.
+            sender_display: The requesting user's display name.
+
+        Returns:
+            ``True`` if the user is allowed to generate video.
+        """
         if not self.video_whitelist_enabled:
             return True
         if sender_display in self.admins or sender_id in self.admins:
@@ -144,11 +163,21 @@ class AppContext:
         return tooling.tools_for_model(self, model)
 
     async def refresh_models(self) -> None:
-        """Refresh each provider's model list from its ``/models`` endpoint."""
+        """Refresh each provider's model list from its ``/models`` endpoint.
+
+        Merges server-reported models with the configured ones and rebuilds
+        the active tool list. Providers that fail or return nothing keep their
+        configured models. Delegates to :func:`tooling.refresh_models`.
+        """
         await tooling.refresh_models(self)
 
     async def probe_mcp_servers(self) -> None:
-        """Probe configured MCP servers to validate connectivity and tools."""
+        """Probe configured MCP servers and drop unreachable ones.
+
+        Checks each MCP ``server_url`` at startup so unreachable servers are
+        logged and removed from the tool list instead of failing later.
+        Delegates to :func:`tooling.probe_mcp_servers`.
+        """
         await tooling.probe_mcp_servers(self)
 
     def _build_tools(self, provider: str) -> List[Dict[str, Any]]:
@@ -588,7 +617,11 @@ class AppContext:
         )
 
     async def _cancel_thinking_animation(self) -> None:
-        """Cancel and await the running thinking-animation task, if any."""
+        """Cancel the running thinking-animation task and await its teardown.
+
+        Safe to call when no animation is active. Awaits the cancelled task so
+        its ``CancelledError`` is consumed, then clears the task reference.
+        """
         task = getattr(self, "thinking_animation_task", None)
         if task and not task.done():
             task.cancel()
@@ -599,7 +632,12 @@ class AppContext:
         self.thinking_animation_task = None
 
     async def clear_thinking_indicator(self) -> None:
-        """Cancel the thinking animation and redact the placeholder (used on error)."""
+        """Tear down the thinking indicator, redacting its placeholder message.
+
+        Cancels the animation and removes the placeholder entirely. Used on
+        the error path, where no reply will replace the placeholder, so it is
+        redacted rather than edited in place.
+        """
         await self._cancel_thinking_animation()
         event_id = getattr(self, "thinking_placeholder_event_id", None)
         room_id = getattr(self, "thinking_placeholder_room_id", None)
@@ -609,7 +647,17 @@ class AppContext:
             await self.matrix.redact_event(room_id, event_id)
 
     async def send_response(self, room_id: str, body: str, html: Optional[str] = None) -> None:
-        """Send a reply, editing the thinking placeholder in-place if one exists."""
+        """Send a reply, reusing the thinking placeholder when one exists.
+
+        Cancels any running animation, then edits the placeholder message in
+        place with the final reply (so it visually "becomes" the answer) or
+        sends a new message when there is no placeholder.
+
+        Args:
+            room_id: Destination Matrix room.
+            body: Plain-text message body.
+            html: Optional rendered HTML body for rich clients.
+        """
         await self._cancel_thinking_animation()
         event_id = getattr(self, "thinking_placeholder_event_id", None)
         self.thinking_placeholder_event_id = None

@@ -1,4 +1,8 @@
-"""Handler for the ``.country`` admin command: set the web-search region."""
+"""Handler for the ``.country`` admin command.
+
+Views or updates the web-search country bias used to steer ``web_search``/
+``x_search`` results toward a particular region.
+"""
 from __future__ import annotations
 
 from typing import Any

@@ -1,4 +1,10 @@
-"""Per-room conversation history with optional encrypted persistence."""
+"""Per-room conversation history with optional encrypted persistence.
+
+Defines :class:`HistoryStore`, which keeps a system-seeded message list per
+room/user thread, composes the system prompt from the persona/prefix/suffix
+(plus optional per-user location), trims threads to a token budget, and can
+transparently persist everything to an encrypted file on disk.
+"""
 from __future__ import annotations
 
 import json
@@ -78,7 +84,14 @@ class HistoryStore:
 
     @property
     def messages(self) -> Dict[str, Dict[str, List[Dict[str, str]]]]:
-        """Expose the raw history mapping for inspection/testing."""
+        """The raw nested history mapping.
+
+        Exposed primarily for inspection and tests; mutating it bypasses
+        trimming and persistence.
+
+        Returns:
+            The ``{room: {user: [message, ...]}}`` mapping backing the store.
+        """
         return self._messages
 
     def set_verbose(self, verbose: bool) -> None:
@@ -92,24 +105,58 @@ class HistoryStore:
         self._include_extra = not bool(verbose)
 
     def _full_suffix(self) -> str:
-        """Compute the current suffix including optional extra parts."""
+        """Compose the prompt suffix, including the extra clause when active.
+
+        The extra clause (typically a brevity instruction) is appended unless
+        verbose mode has been enabled via :meth:`set_verbose`.
+
+        Returns:
+            The suffix string to append after the personality.
+        """
         return f"{self.prompt_suffix}{self.prompt_suffix_extra if self._include_extra and self.prompt_suffix_extra else ''}"
 
     def _location_suffix(self, user: str) -> str:
-        """Return a location note for the user, or empty string."""
+        """Build the location sentence appended to a user's system prompt.
+
+        Args:
+            user: Matrix user ID to look up.
+
+        Returns:
+            A leading-space location note, or an empty string when the user
+            has no stored location.
+        """
         loc = self._locations.get(user)
         if loc:
             return f" The user is located in {loc}."
         return ""
 
     def _system_for(self, room: str, user: str) -> str:
-        """Build the system prompt for a specific room/user thread."""
+        """Compose the system prompt for a room/user thread.
+
+        Uses the fixed system prompt when one was configured, otherwise builds
+        it from prefix + personality + suffix; either way the user's location
+        note is appended.
+
+        Args:
+            room: Matrix room ID (reserved for future per-room prompts).
+            user: Matrix user ID, used for the location note.
+
+        Returns:
+            The full system prompt string for the thread.
+        """
         if self._fixed_system_prompt is not None:
             return self._fixed_system_prompt + self._location_suffix(user)
         return f"{self.prompt_prefix}{self.personality}{self._full_suffix()}{self._location_suffix(user)}"
 
     def _ensure(self, room: str, user: str) -> None:
-        """Ensure a history thread exists, seeding with a system message."""
+        """Create a thread seeded with a system message if absent.
+
+        Idempotent: existing threads are left untouched.
+
+        Args:
+            room: Matrix room ID.
+            user: Matrix user ID.
+        """
         if room not in self._messages:
             self._messages[room] = {}
         if user not in self._messages[room]:
@@ -150,7 +197,19 @@ class HistoryStore:
         self._save()
 
     def get(self, room: str, user: str) -> List[Dict[str, str]]:
-        """Return a copy of the message list for a thread."""
+        """Return a shallow copy of a thread's messages.
+
+        Seeds the thread with its system message first if it does not yet
+        exist. The copy is safe to pass to generation without mutating store
+        state.
+
+        Args:
+            room: Matrix room ID.
+            user: Matrix user ID.
+
+        Returns:
+            A new list of the thread's message dicts.
+        """
         self._ensure(room, user)
         return list(self._messages[room][user])
 
@@ -171,7 +230,15 @@ class HistoryStore:
 
     # alias used by our handlers
     def clear(self, room: str, user: str) -> None:
-        """Alias for ``reset(..., stock=True)`` for handler parity."""
+        """Clear a thread's history without re-seeding a prompt.
+
+        Convenience alias for ``reset(room, user, stock=True)`` to match the
+        naming used by the command handlers.
+
+        Args:
+            room: Matrix room ID.
+            user: Matrix user ID.
+        """
         self.reset(room, user, stock=True)
 
     def clear_all(self) -> None:
@@ -185,11 +252,29 @@ class HistoryStore:
 
     @staticmethod
     def count_tokens(msgs: List[Dict[str, str]]) -> int:
-        """Estimate token count for a list of messages using char-length heuristic."""
+        """Estimate the token count of a message list.
+
+        Uses a cheap ~4-characters-per-token heuristic rather than a real
+        tokenizer, which is sufficient for budgeting history length.
+
+        Args:
+            msgs: The messages to estimate.
+
+        Returns:
+            The approximate total token count.
+        """
         return sum(len(m.get("content", "")) for m in msgs) // 4
 
     def _trim(self, room: str, user: str) -> None:
-        """Trim oldest messages until estimated token count is within the budget."""
+        """Drop oldest messages until a thread fits the token budget.
+
+        Preserves the leading system message, removing the next-oldest
+        messages first; stops if only the system message remains.
+
+        Args:
+            room: Matrix room ID.
+            user: Matrix user ID.
+        """
         msgs = self._messages[room][user]
         while self.count_tokens(msgs) > self.max_tokens:
             if msgs and msgs[0].get("role") == "system":
@@ -231,13 +316,25 @@ class HistoryStore:
         self._save()
 
     def get_location(self, user: str) -> Optional[str]:
-        """Return the stored location for a user, or None."""
+        """Return a user's stored location.
+
+        Args:
+            user: Matrix user ID to look up.
+
+        Returns:
+            The stored location string, or ``None`` if the user has none.
+        """
         return self._locations.get(user)
 
     # -- Encrypted persistence -------------------------------------------------
 
     def _save(self) -> None:
-        """Encrypt and write history to disk. No-op if persistence is not configured."""
+        """Persist messages and locations to the encrypted store file.
+
+        No-op when persistence is not configured (no Fernet key or store
+        path). Failures are logged rather than raised so a write error never
+        breaks message handling.
+        """
         if not self._fernet or not self._store_file:
             return
         try:
@@ -248,7 +345,12 @@ class HistoryStore:
             logger.exception("Failed to save encrypted history")
 
     def _load(self) -> None:
-        """Decrypt and restore history from disk. No-op if file does not exist."""
+        """Restore messages and locations from the encrypted store file.
+
+        No-op when persistence is unconfigured or the file is absent. Supports
+        both the legacy bare-messages format and the current
+        ``{messages, locations}`` format. Failures are logged, not raised.
+        """
         if not self._fernet or not self._store_file or not self._store_file.exists():
             return
         try:

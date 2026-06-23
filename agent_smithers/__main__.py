@@ -1,4 +1,8 @@
-"""Package entry point so ``python -m agent_smithers`` launches the CLI."""
+"""Package execution entry point.
+
+Allows the bot to be started with ``python -m agent_smithers`` by delegating
+to the console-script :func:`agent_smithers.cli.main`.
+"""
 from .cli import main
 
 

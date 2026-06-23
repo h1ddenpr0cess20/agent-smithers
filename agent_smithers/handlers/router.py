@@ -1,4 +1,9 @@
-"""Command router mapping message prefixes and bot mentions to handlers."""
+"""Command router mapping message prefixes and bot mentions to handlers.
+
+Defines :class:`Router`, the framework-agnostic dispatcher that turns an
+incoming message into a ``(handler, args)`` pair based on its leading command
+token or a direct bot mention, honoring admin-only registrations.
+"""
 from __future__ import annotations
 
 import datetime as _dt
@@ -16,7 +21,11 @@ class Router:
     """
 
     def __init__(self) -> None:
-        """Create a new, empty command router."""
+        """Initialize an empty router.
+
+        Sets up separate maps for regular and admin-only command handlers,
+        both empty until :meth:`register` is called.
+        """
         self._handlers: Dict[str, Callable] = {}
         self._admin_handlers: Dict[str, Callable] = {}
 

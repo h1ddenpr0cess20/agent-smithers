@@ -1,4 +1,9 @@
-"""Handlers for the ``.persona`` and ``.custom`` system-prompt commands."""
+"""Handlers for the ``.persona`` and ``.custom`` system-prompt commands.
+
+``.persona`` swaps the personality woven into the standard prompt template,
+while ``.custom`` replaces the system prompt verbatim; both then request a
+reply for the user.
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -45,7 +50,18 @@ async def handle_custom(ctx: Any, room_id: str, sender_id: str, sender_display: 
 
 
 async def _respond(ctx: Any, room_id: str, user_id: str, header_display: str) -> None:
-    """Helper to request a reply for the current user and send it."""
+    """Generate a reply for the user's current thread and send it.
+
+    Resolves the user's effective model, generates a reply over their history,
+    cleans it, and posts it under a display header. On failure it clears any
+    thinking indicator and sends a generic error message instead of raising.
+
+    Args:
+        ctx: Application context.
+        room_id: Room the reply is sent to.
+        user_id: User whose thread/history is used.
+        header_display: Display name used as the reply header.
+    """
     messages = ctx.history.get(room_id, user_id)
     model = ctx.user_models.get(room_id, {}).get(user_id, ctx.model)
     try:

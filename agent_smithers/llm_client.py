@@ -19,7 +19,13 @@ from .config import AppConfig, provider_for_model
 
 
 class LLMClient:
-    """Thin Responses API client for OpenAI-compatible providers."""
+    """HTTP client for the Responses API across OpenAI-compatible providers.
+
+    Exposes async methods for chat responses, image generation/editing, video
+    generation (with polling), file/URL downloads, and model listing. Each
+    call resolves the owning provider, applies per-provider base URLs, auth
+    headers, and payload quirks, and issues a one-shot ``httpx`` request.
+    """
 
     LMSTUDIO_FALLBACK_USER_PROMPT = "Please continue the conversation."
     XAI_IMAGE_MODEL = "grok-imagine-image"
@@ -289,7 +295,22 @@ class LLMClient:
         *,
         include_system: bool = False,
     ) -> Tuple[Optional[str], List[Dict[str, str]]]:
-        """Convert chat-style history to Responses API instructions/input."""
+        """Split chat-style history into Responses API instructions and input.
+
+        System messages become the top-level ``instructions`` string unless
+        ``include_system`` is set, in which case they are kept inline as input
+        items (needed for providers that reject ``instructions``). Empty roles
+        or contents are skipped.
+
+        Args:
+            messages: Chat messages with ``role``/``content`` keys.
+            include_system: Keep system messages as input items instead of
+                folding them into the instructions string.
+
+        Returns:
+            A ``(instructions, input_items)`` tuple, where ``instructions`` is
+            ``None`` when there is no system content to surface.
+        """
         instructions: List[str] = []
         input_items: List[Dict[str, str]] = []
         for message in messages:
@@ -320,7 +341,29 @@ class LLMClient:
         options: Optional[Dict[str, Any]] = None,
         instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Build a Responses API request body."""
+        """Assemble a Responses API request body for a model.
+
+        Derives instructions/input from ``messages`` (or uses the explicit
+        ``input_items``), wires up tools and tool choice, applies provider
+        quirks (xAI inline system messages and citation ``include`` flags, the
+        LM Studio fallback user turn, ``store=False`` for hosted providers),
+        and merges any extra ``options``.
+
+        Args:
+            model: Target model id; determines the provider.
+            messages: Chat history to convert, or ``None`` when supplying
+                ``input_items`` directly.
+            tools: Tool definitions to attach.
+            tool_choice: Tool-choice policy; defaults to ``"auto"`` when tools
+                are present.
+            previous_response_id: Prior response id to continue from.
+            input_items: Pre-built input items, used instead of ``messages``.
+            options: Extra request options merged into the payload.
+            instructions: Explicit instructions overriding derived ones.
+
+        Returns:
+            The request body dict ready to POST to ``/responses``.
+        """
         provider = self._provider_for_model(model)
         payload: Dict[str, Any] = {"model": model}
         derived_instructions = instructions
@@ -371,7 +414,27 @@ class LLMClient:
         options: Optional[Dict[str, Any]] = None,
         instructions: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create a response via the configured provider's Responses API."""
+        """POST a request to the provider's Responses API and return the body.
+
+        Builds the payload via :meth:`build_request_payload` and issues a
+        single ``httpx`` request with the provider's auth headers and timeout.
+
+        Args:
+            model: Target model id; determines the provider.
+            messages: Chat history to convert, or ``None`` with ``input_items``.
+            tools: Tool definitions to attach.
+            tool_choice: Tool-choice policy.
+            previous_response_id: Prior response id to continue from.
+            input_items: Pre-built input items, used instead of ``messages``.
+            options: Extra request options merged into the payload.
+            instructions: Explicit instructions overriding derived ones.
+
+        Returns:
+            The decoded JSON response body.
+
+        Raises:
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         provider = self._provider_for_model(model)
         payload = self.build_request_payload(
             model=model,
@@ -402,7 +465,24 @@ class LLMClient:
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Generate an image via xAI POST /v1/images/generations."""
+        """Generate one or more images via the xAI image API.
+
+        POSTs to ``/images/generations`` requesting base64 output.
+
+        Args:
+            prompt: Description of the image to generate.
+            model: Model used to resolve the provider unless overridden.
+            provider_override: Force a specific provider (e.g. ``"xai"``).
+            n: Number of images to generate.
+            aspect_ratio: Optional aspect-ratio hint.
+            resolution: Optional resolution hint.
+
+        Returns:
+            The decoded JSON response, with images under ``data``.
+
+        Raises:
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         provider = provider_override or self._provider_for_model(model)
         payload: Dict[str, Any] = {
             "model": self.XAI_IMAGE_MODEL,
@@ -434,7 +514,27 @@ class LLMClient:
         aspect_ratio: Optional[str] = None,
         resolution: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Edit one or more images via xAI POST /v1/images/edits."""
+        """Edit one or more source images via the xAI image API.
+
+        POSTs to ``/images/edits``; a single source is sent as ``image`` and
+        multiple sources as ``images``.
+
+        Args:
+            prompt: The edit instruction.
+            image_urls: Source image URLs or data URIs to edit.
+            model: Model used to resolve the provider unless overridden.
+            provider_override: Force a specific provider (e.g. ``"xai"``).
+            n: Number of output images to generate.
+            aspect_ratio: Optional aspect-ratio hint.
+            resolution: Optional resolution hint.
+
+        Returns:
+            The decoded JSON response, with images under ``data``.
+
+        Raises:
+            ValueError: If no non-empty image URL is provided.
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         provider = provider_override or self._provider_for_model(model)
         cleaned_urls = [url.strip() for url in image_urls if str(url).strip()]
         if not cleaned_urls:
@@ -519,7 +619,31 @@ class LLMClient:
         resolution: Optional[str] = None,
         on_status: Optional[Callable[[str], None]] = None,
     ) -> Dict[str, Any]:
-        """Generate or edit a video via xAI Grok Imagine."""
+        """Generate or edit a video via xAI Grok Imagine.
+
+        POSTs to ``/videos/generations`` and, when the result is not
+        immediately ready, polls until completion via
+        :meth:`_poll_video_generation`. A ``video_url`` triggers an edit;
+        otherwise an optional ``image_url`` drives image-to-video.
+
+        Args:
+            prompt: Description of the video to create.
+            model: Model id (provider is always xAI for video).
+            backend: Accepted for compatibility and ignored.
+            image_url: Optional source image for image-to-video.
+            video_url: Optional source video to edit/remix.
+            duration: Optional clip duration in seconds.
+            aspect_ratio: Optional aspect-ratio hint.
+            resolution: Optional resolution hint.
+            on_status: Optional callback invoked with status strings.
+
+        Returns:
+            The final video payload once generation completes.
+
+        Raises:
+            RuntimeError: If the response lacks a request id to poll.
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         del backend
         provider = "xai"
         payload: Dict[str, Any] = {
@@ -567,7 +691,22 @@ class LLMClient:
         provider: str,
         container_id: Optional[str] = None,
     ) -> bytes:
-        """Download a file or container file returned by a hosted tool."""
+        """Download a hosted-tool output file by id.
+
+        Targets the container file endpoint when ``container_id`` is given
+        (code-interpreter outputs), otherwise the plain files endpoint.
+
+        Args:
+            file_id: Identifier of the file to download.
+            provider: Provider that produced the file.
+            container_id: Optional code-interpreter container id.
+
+        Returns:
+            The raw file bytes.
+
+        Raises:
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         if container_id:
             url = f"{self._base_url(provider)}/containers/{container_id}/files/{file_id}/content"
         else:
@@ -578,7 +717,21 @@ class LLMClient:
             return response.content
 
     async def download_url(self, url: str, *, provider: Optional[str] = None) -> bytes:
-        """Download a direct media URL, using provider auth only for first-party URLs."""
+        """Download bytes from a direct media URL.
+
+        Provider auth headers are attached only when the URL belongs to that
+        provider's base URL, so third-party CDN links are fetched anonymously.
+
+        Args:
+            url: The media URL to download.
+            provider: Optional provider whose auth applies to first-party URLs.
+
+        Returns:
+            The raw downloaded bytes.
+
+        Raises:
+            httpx.HTTPStatusError: If the server returns a non-2xx status.
+        """
         headers: Optional[Dict[str, str]] = None
         if provider and url.startswith(self._base_url(provider)):
             headers = self._headers(provider)
@@ -588,7 +741,21 @@ class LLMClient:
             return response.content
 
     async def list_models(self, provider: str) -> List[str]:
-        """List response-capable models from the requested provider."""
+        """List the response-capable models offered by a provider.
+
+        Fetches ``/models`` and filters out non-chat variants (embeddings,
+        image/video/audio, dated snapshots) via :meth:`_is_chat_model`,
+        falling back to the full id set if filtering leaves nothing.
+
+        Args:
+            provider: Provider whose models to list.
+
+        Returns:
+            A sorted list of usable model ids.
+
+        Raises:
+            httpx.HTTPStatusError: If the provider returns a non-2xx status.
+        """
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.cfg.llm.timeout)) as client:
             response = await client.get(
                 f"{self._base_url(provider)}/models",
