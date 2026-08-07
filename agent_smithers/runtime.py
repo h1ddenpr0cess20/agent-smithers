@@ -279,8 +279,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
                 result = handler(*args)
                 if asyncio.iscoroutine(result):
                     # Handlers reply through ctx; the return value is unused.
-                    # codeql[py/ineffectual-statement]
-                    await result
+                    _ = await result
             finally:
                 await ctx.clear_thinking_indicator()
         except Exception as exc:
