@@ -106,11 +106,15 @@ class Security:
                     elif hasattr(client, "send_sas_mac"):
                         await client.send_sas_mac(event.transaction_id)  # type: ignore[attr-defined]
                 except Exception:
+                    # Nio spells the MAC step differently across versions; if none of the
+                    # three shapes is available there is no MAC to send.
                     pass
                 try:
                     done = ToDeviceMessage("m.key.verification.done", event.sender, sas.other_olm_device.id, {"transaction_id": event.transaction_id})  # type: ignore[attr-defined]
                     await client.to_device(done)
                 except Exception:
+                    # The peer may have already completed or cancelled the exchange, in
+                    # which case the done message has nowhere to go.
                     pass
                 self.logger.info("Emoji verification was successful.")
             elif isinstance(event, KeyVerificationCancel):
@@ -131,6 +135,8 @@ class Security:
             if hasattr(c, "query_keys"):
                 await c.query_keys([user_id])  # type: ignore
         except Exception:
+            # Key querying is optional; the device store may already be populated
+            # from a previous sync.
             pass
         try:
             store = getattr(c, "device_store", None)
@@ -145,6 +151,9 @@ class Security:
                         await c.verify_device(user_id, device_id)  # type: ignore
                         self.logger.info("verified device %s for %s", device_id, user_id)
                 except Exception:
+                    # One device failing to verify must not stop the remaining devices
+                    # from being processed.
                     pass
         except Exception:
+            # No device store on this client build; nothing to verify.
             pass

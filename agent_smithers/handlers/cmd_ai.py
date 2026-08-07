@@ -34,6 +34,8 @@ async def handle_ai(ctx: Any, room_id: str, sender_id: str, sender_display: str,
             await matrix.send_text(room_id, "Something went wrong", html=ctx.render("Something went wrong"))
             ctx.log(e)
         except Exception:
+            # Best-effort cleanup on an already-failed request: if the error
+            # notice cannot be delivered either, there is nothing left to try.
             pass
         return
     text = ctx.clean_response_text(response_text or "", sender_display=sender_display, sender_id=sender_id)
@@ -43,5 +45,6 @@ async def handle_ai(ctx: Any, room_id: str, sender_id: str, sender_display: str,
     try:
         ctx.log(f"Sending response to {sender_display} in {room_id}: {body}")
     except Exception:
+        # Logging is best-effort and must never suppress the reply itself.
         pass
     await ctx.send_response(room_id, body, html=html)

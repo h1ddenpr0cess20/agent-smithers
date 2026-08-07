@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import httpx
 
 from .config import provider_for_model
 
-if TYPE_CHECKING:
-    from .context import AppContext
+# The ``ctx`` argument threaded through this module is always a
+# :class:`~.context.AppContext`. It is aliased to ``Any`` rather than imported
+# for typing because ``context`` imports this module: even a ``TYPE_CHECKING``
+# back-import would make the two modules circularly dependent.
+AppContext = Any
 
 
 XAI_HOSTED_TOOL_TYPES = {"web_search", "x_search", "code_interpreter", "mcp"}

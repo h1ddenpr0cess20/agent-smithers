@@ -16,6 +16,7 @@ from agent_smithers.config import (
     load_env_file,
 )
 from agent_smithers.exceptions import ConfigError
+from agent_smithers import config as cfg_mod
 
 
 def test_load_config_and_validate(tmp_path: Path):
@@ -450,7 +451,6 @@ def test_resolve_lmstudio_url_outside_docker():
 
 def test_resolve_lmstudio_url_in_docker(tmp_path):
     """Inside Docker (/.dockerenv present), 127.0.0.1/localhost → host.docker.internal."""
-    import agent_smithers.config as cfg_mod
     from unittest.mock import patch, MagicMock
 
     dockerenv = MagicMock()

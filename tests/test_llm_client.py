@@ -33,13 +33,12 @@ class RecordingAsyncClient:
     requests = []
 
     def __init__(self, *args, **kwargs):
-        del args, kwargs
+        pass
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        del exc_type, exc, tb
         return False
 
     async def post(self, url, headers=None, json=None, files=None, data=None):

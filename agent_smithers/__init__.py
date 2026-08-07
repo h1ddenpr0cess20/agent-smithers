@@ -11,5 +11,5 @@ __all__ = [
     "llm_client",
     "matrix_client",
     "security",
-    "tools",
+    "tooling",
 ]

@@ -628,6 +628,8 @@ class AppContext:
             try:
                 await task
             except asyncio.CancelledError:
+                # Expected: we just cancelled the task and are draining its
+                # CancelledError so it is not reported as never-retrieved.
                 pass
         self.thinking_animation_task = None
 
