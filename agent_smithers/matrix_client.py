@@ -63,6 +63,8 @@ class MatrixClientWrapper:
         try:
             self.client.user_id = username
         except Exception:
+            # Some nio versions expose ``user_id`` as a read-only property; the
+            # client derives it from the login response either way.
             pass
         self.password = password
 
@@ -95,6 +97,8 @@ class MatrixClientWrapper:
         if callable(result):
             maybe = result()
             if asyncio.iscoroutine(maybe):
+                # Awaited purely for its effect; the store loads into the client.
+                # codeql[py/ineffectual-statement]
                 await maybe
 
     async def join(self, room_id: str) -> None:
@@ -146,6 +150,8 @@ class MatrixClientWrapper:
         try:
             await self.client.room_send(room_id=room_id, message_type="m.room.message", content=content, ignore_unverified_devices=True)
         except Exception:
+            # An edit that cannot be delivered is not worth failing the whole
+            # response over -- the original message is already in the room.
             pass
 
     async def send_markdown(self, room_id: str, message: str) -> None:
@@ -280,6 +286,8 @@ class MatrixClientWrapper:
         try:
             await self.client.room_redact(room_id=room_id, event_id=event_id)
         except Exception:
+            # Redaction is best-effort: the event may already be gone, or the
+            # bot may lack permission to redact it.
             pass
 
     def add_text_handler(self, handler: TextHandler) -> None:
@@ -331,6 +339,8 @@ class MatrixClientWrapper:
         try:
             await self.client.request_room_key(event)
         except Exception:
+            # Best-effort key request; the message stays undecryptable and the
+            # caller has already surfaced that to the user.
             pass
 
     def add_to_device_callback(self, callback, event_types=None) -> None:
@@ -344,6 +354,8 @@ class MatrixClientWrapper:
         try:
             self.client.add_to_device_callback(callback, event_types)
         except Exception:
+            # Older nio builds do not accept an event-type filter (or lack the
+            # callback entirely); to-device handling is optional.
             pass
 
     async def initial_sync(self, timeout_ms: int = 3000) -> None:
@@ -372,9 +384,12 @@ class MatrixClientWrapper:
             if hasattr(self.client, "logout"):
                 await self.client.logout()  # type: ignore[arg-type]
         except Exception:
+            # Shutdown cleanup: logout may fail if the session is already gone,
+            # and close below must still run.
             pass
         try:
             if hasattr(self.client, "close"):
                 await self.client.close()  # type: ignore[arg-type]
         except Exception:
+            # Shutdown cleanup: the transport may already be torn down.
             pass

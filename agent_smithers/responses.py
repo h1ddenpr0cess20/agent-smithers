@@ -11,12 +11,8 @@ import base64
 import json
 import os
 import tempfile
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urlparse
-
-
-if TYPE_CHECKING:
-    from .context import AppContext
 
 from .llm_client import LLMClient
 from .tooling import (
@@ -25,6 +21,12 @@ from .tooling import (
     GROK_GENERATE_VIDEO_TOOL,
 )
 
+
+# The ``ctx`` argument threaded through this module is always a
+# :class:`~.context.AppContext`. It is aliased to ``Any`` rather than imported
+# for typing because ``context`` imports this module: even a ``TYPE_CHECKING``
+# back-import would make the two modules circularly dependent.
+AppContext = Any
 
 INLINE_CITATION_RE = None
 IMAGE_GENERATION_TOOL_NAMES = {GROK_GENERATE_IMAGE_TOOL}
@@ -86,6 +88,7 @@ def clean_response_text(
             ctx.log(f"Model thinking for {sender_display} ({sender_id}): {thinking}")
             cleaned = rest.strip()
         except Exception:
+            # Malformed reasoning markers just mean the text is left as-is.
             pass
     if "<|begin_of_thought|>" in cleaned and "<|end_of_thought|>" in cleaned:
         try:
@@ -100,6 +103,7 @@ def clean_response_text(
                 ctx.log(f"Model thinking for {sender_display} ({sender_id}): {thinking}")
                 cleaned = parts[1].strip()
         except Exception:
+            # Malformed reasoning markers just mean the text is left as-is.
             pass
     if "<|begin_of_solution|>" in cleaned and "<|end_of_solution|>" in cleaned:
         try:
@@ -107,6 +111,7 @@ def clean_response_text(
                 "<|end_of_solution|>", 1
             )[0].strip()
         except Exception:
+            # Malformed solution markers just mean the text is left as-is.
             pass
     return cleaned.strip()
 

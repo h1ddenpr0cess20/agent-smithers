@@ -43,6 +43,8 @@ async def handle_verbose(ctx: Any, room_id: str, sender_id: str, sender_display:
         if hasattr(ctx.history, "set_verbose"):
             ctx.history.set_verbose(ctx.verbose)
     except Exception:
+        # The history store is optional and its verbosity hook may be absent
+        # or unimplemented; the in-memory flag above is the source of truth.
         pass
     state = "ON" if ctx.verbose else "OFF"
     body = f"Verbose mode set to **{state}**"

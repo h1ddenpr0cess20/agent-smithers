@@ -112,6 +112,8 @@ def register_security_callbacks(ctx: AppContext, security: Security) -> None:
             ctx.matrix.add_to_device_callback(security.emoji_verification_callback, (KeyVerificationEvent,))
         ctx.matrix.add_to_device_callback(security.log_to_device_event, None)
     except Exception:
+        # Verification callbacks are an E2EE nicety; nio builds without
+        # to-device callback support must not block startup.
         pass
 
 
@@ -131,8 +133,11 @@ def install_signal_handlers(stop: asyncio.Event) -> None:
             try:
                 loop.add_signal_handler(sig, stop.set)
             except Exception:
+                # Signal handlers are unsupported on some platforms (notably
+                # Windows) and on non-main threads; fall back to default handling.
                 pass
     except Exception:
+        # No running loop yet, or the loop does not support signal handlers.
         pass
 
 
@@ -190,6 +195,7 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     try:
         ctx.log(login_resp)
     except Exception:
+        # Logging the login response is diagnostic only.
         pass
     await ctx.matrix.ensure_keys()
     await ctx.matrix.initial_sync()
@@ -246,10 +252,14 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
             try:
                 ctx.log(f"{sender_display} ({sender}) sent {text} in {room.room_id}")
             except Exception:
+                # Logging the inbound message is diagnostic only and must not stop
+                # the handler from running.
                 pass
             try:
                 await security.allow_devices(sender)
             except Exception:
+                # Device trust is best-effort; an undecryptable reply is better
+                # than dropping the message entirely.
                 pass
             user_event_id = getattr(event, "event_id", None)
             should_indicate = handler in _GENERATING_HANDLERS and user_event_id and getattr(ctx, "thinking", False)
@@ -268,6 +278,8 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
             try:
                 result = handler(*args)
                 if asyncio.iscoroutine(result):
+                    # Handlers reply through ctx; the return value is unused.
+                    # codeql[py/ineffectual-statement]
                     await result
             finally:
                 await ctx.clear_thinking_indicator()
@@ -301,6 +313,8 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
     try:
         await asyncio.wait({sync_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
     except KeyboardInterrupt:
+        # Ctrl-C during the wait is a normal shutdown path; the finally
+        # block below performs the cleanup.
         pass
     finally:
         for task in (sync_task, stop_task):
@@ -310,8 +324,11 @@ async def run(cfg: AppConfig, config_path: Optional[str] = None) -> None:
             if hasattr(ctx.matrix, "shutdown"):
                 await ctx.matrix.shutdown()
         except Exception:
+            # Shutdown cleanup: the client may already be torn down, and the
+            # executor below must still be stopped.
             pass
         try:
             ctx.executor.shutdown(wait=False, cancel_futures=True)
         except Exception:
+            # Shutdown cleanup: the executor may already be shut down.
             pass
