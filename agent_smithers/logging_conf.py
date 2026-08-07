@@ -275,17 +275,28 @@ def setup_logging(level: str = "INFO", json: bool = False) -> None:
         handler = RichHandler(console=console, rich_tracebacks=True, markup=True, show_level=True, show_time=True, show_path=False, highlighter=highlighter)
         datefmt = "[%X]"
         fmt = "%(message)s" if not json else "%(name)s - %(message)s"
-        root = logging.getLogger(); root.handlers = []; root.setLevel(logging.ERROR)
-        pkg_logger = logging.getLogger("agent_smithers"); pkg_logger.handlers = []; pkg_logger.setLevel(lvl)
+        root = logging.getLogger()
+        root.handlers = []
+        root.setLevel(logging.ERROR)
+        pkg_logger = logging.getLogger("agent_smithers")
+        pkg_logger.handlers = []
+        pkg_logger.setLevel(lvl)
         logging.Formatter(fmt=fmt, datefmt=datefmt)
-        pkg_logger.addHandler(handler); pkg_logger.propagate = False
+        pkg_logger.addHandler(handler)
+        pkg_logger.propagate = False
     except Exception:
         _RICH_CONSOLE = None
         fmt = ("%(asctime)s %(levelname)s %(name)s %(message)s" if json else "%(asctime)s - %(levelname)s - %(message)s")
-        root = logging.getLogger(); root.handlers = []; root.setLevel(logging.ERROR)
-        pkg_logger = logging.getLogger("agent_smithers"); pkg_logger.handlers = []; pkg_logger.setLevel(lvl)
-        handler = logging.StreamHandler(); handler.setFormatter(logging.Formatter(fmt))
-        pkg_logger.addHandler(handler); pkg_logger.propagate = False
+        root = logging.getLogger()
+        root.handlers = []
+        root.setLevel(logging.ERROR)
+        pkg_logger = logging.getLogger("agent_smithers")
+        pkg_logger.handlers = []
+        pkg_logger.setLevel(lvl)
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(fmt))
+        pkg_logger.addHandler(handler)
+        pkg_logger.propagate = False
 
 
 def configure_logging(level: int = logging.INFO) -> None:

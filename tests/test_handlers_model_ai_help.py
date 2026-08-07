@@ -126,7 +126,7 @@ def test_handle_help_with_admin_split(monkeypatch, tmp_path):
     help_file = tmp_path / "help.md"
     help_file.write_text("User Help~~~Admin Help")
     monkeypatch.chdir(tmp_path)
-    ctx = SimpleNamespace(render=lambda s: None, matrix=FakeMatrix(), admins=["AdminUser"]) 
+    ctx = SimpleNamespace(render=lambda s: None, matrix=FakeMatrix(), admins=["AdminUser"])
     asyncio.run(handle_help(ctx, "!r", "@u", "User", ""))
     assert ctx.matrix.sent[-1][1].strip() == "User Help"
     ctx.matrix.sent.clear()

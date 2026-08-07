@@ -1,5 +1,4 @@
 import asyncio
-import pytest
 
 import agent_smithers.matrix_client as mc
 from types import SimpleNamespace

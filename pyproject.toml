@@ -43,6 +43,14 @@ test = [
   "pytest-asyncio",
 ]
 
+[tool.ruff]
+line-length = 130
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+# Long lines are pre-existing style in argparse/logging setup; not worth churn.
+ignore = ["E501"]
+
 [project.urls]
 Homepage = "https://github.com/h1ddenpr0cess20/agent-smithers"
 Repository = "https://github.com/h1ddenpr0cess20/agent-smithers"
