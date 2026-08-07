@@ -12,7 +12,7 @@ import mimetypes
 import os
 from typing import Any, Awaitable, Callable, Optional
 
-from nio import AsyncClient, AsyncClientConfig, MatrixRoom, MegolmEvent, RoomMessageText, KeyVerificationEvent
+from nio import AsyncClient, AsyncClientConfig, MatrixRoom, MegolmEvent, RoomMessageText
 
 from .markdown_utils import render_markdown
 

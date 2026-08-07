@@ -5,3 +5,5 @@ incoming message prefixes and bot mentions to those handlers.
 """
 from .router import Router
 
+__all__ = ["Router"]
+

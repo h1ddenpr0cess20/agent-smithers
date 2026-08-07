@@ -45,7 +45,7 @@ def test_reset_with_stock_leaves_empty():
     hs = HistoryStore("you are ", ".", "helper")
     hs.add("!r", "@u", "user", "hello")
     hs.reset("!r", "@u", stock=True)
-    msgs = hs.get("!r", "@u")
+    hs.get("!r", "@u")
     # get() calls _ensure which re-adds a system message
     # but reset with stock=True clears to empty list
     assert hs.messages["!r"]["@u"] == []
